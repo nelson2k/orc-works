@@ -1,0 +1,12 @@
+use a single agent, do not spawn more than one
+
+you can read and copy from repos-folder
+folder but not move them
+
+only commit and push when the
+user says so
+
+if a file is missing
+is because the user
+deleted it and it's not
+needed
