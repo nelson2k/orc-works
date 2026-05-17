@@ -1,4 +1,5 @@
 import { FormEvent, useState } from "react";
+import PdfViewer from "./PdfViewer";
 
 type ConvertResponse = {
   documentName: string;
@@ -72,6 +73,8 @@ export default function App() {
             <p>Upload a PDF and convert it with the local Marker backend.</p>
           </div>
         </div>
+
+        <PdfViewer file={file} />
 
         <form className="panel" onSubmit={handleSubmit}>
           <label>
