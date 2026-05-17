@@ -1,6 +1,8 @@
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command};
 use std::sync::Mutex;
+use std::thread;
+use std::time::Duration;
 
 use tauri::{Manager, RunEvent, State};
 
@@ -63,7 +65,7 @@ fn marker_start(state: State<'_, MarkerState>) -> Result<String, String> {
         return Err(format!("server.py not found in {}", cwd.display()));
     }
 
-    let child = Command::new(&python)
+    let mut child = Command::new(&python)
         .arg("-m")
         .arg("uvicorn")
         .arg("server:app")
@@ -72,10 +74,20 @@ fn marker_start(state: State<'_, MarkerState>) -> Result<String, String> {
         .arg("--port")
         .arg(MARKER_PORT.to_string())
         .current_dir(&cwd)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("spawn failed: {e}"))?;
+
+    // Give uvicorn a moment to either bind or crash, so we can surface a useful error.
+    thread::sleep(Duration::from_millis(400));
+    match child.try_wait() {
+        Ok(Some(status)) => {
+            return Err(format!(
+                "marker server exited immediately (status {status}); see the cargo console for uvicorn output"
+            ));
+        }
+        Ok(None) => {}
+        Err(e) => return Err(format!("try_wait failed: {e}")),
+    }
 
     *guard = Some(child);
     Ok(format!("started on port {MARKER_PORT}"))

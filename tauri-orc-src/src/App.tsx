@@ -104,10 +104,6 @@ export default function App() {
     <main className="app-shell">
       <section className="workspace">
         <div className="toolbar">
-          <div>
-            <h1>OCR Works</h1>
-            <p>Upload a PDF and convert it with the local Marker backend.</p>
-          </div>
           <div className={`server-status server-status-${serverStatus}`}>
             {serverStatus === "starting" && "Starting marker server..."}
             {serverStatus === "ready" && "Marker server ready"}
