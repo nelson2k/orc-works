@@ -1,2 +1,5 @@
 repos-folder/
 marker-code/venv/
+local.env
+*.env
+output/
