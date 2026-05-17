@@ -25,7 +25,7 @@ src/
 
 ## Frontend — [src/src/](../../src/src/)
 
-React 19 + TypeScript. Entry: [main.tsx](../../src/src/main.tsx) mounts `<App />` into `#root`.
+React 19 + TypeScript. Entry: [main.tsx](../../src/src/main.tsx) mounts `<App />` into `#root` and imports `./styles.css`.
 
 | File | Role |
 | --- | --- |
@@ -90,6 +90,8 @@ Production build: `npm run build` (= `tsc && vite build` → `dist/`), then `car
 ## Known gaps / mismatches to be aware of
 
 - **No artifact URLs.** `server.py` returns `{ markdown }` only — no persisted `markdownUrl` / `metadataUrl` for download, just inline text.
+- **Child stdout/stderr pipes can deadlock.** `lib.rs` spawns marker with `Stdio::piped()` on both streams but nothing drains them. Once the OS pipe buffer (~64 KB on Windows) fills with marker progress logs, the child blocks on `write` and the server hangs. Either use `Stdio::inherit()` or spawn reader threads (and optionally bridge to Tauri events).
+- **First `/convert` has no progress feedback.** `get_artifact_dict()` lazy-loads the 5 surya models (~3 GB on a fresh install) on the first conversion, not at uvicorn boot. The UI just shows "Converting..." through the whole download + model-load wait. Either eager-load at boot (so `serverStatus` covers it) or stream a status event.
 - **`local.env` is not loaded.** `server.py` does not import dotenv or read it; the `OPENAI_API_KEY` and `TORCH_DEVICE` settings have no effect today.
 - **Windows-only paths.** `lib.rs` hardcodes `venv/Scripts/python.exe`; no cross-platform branch.
 - **Product naming.** `productName`, crate name, and window title are all the placeholder `"src"`; the bundle id is `com.nelson.orc-works`.
