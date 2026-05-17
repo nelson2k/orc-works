@@ -10,12 +10,11 @@ struct MarkerState {
     child: Mutex<Option<Child>>,
 }
 
-fn repo_root() -> Result<PathBuf, String> {
+fn app_root() -> Result<PathBuf, String> {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
-        .join("..")
         .canonicalize()
-        .map_err(|e| format!("resolve repo root: {e}"))
+        .map_err(|e| format!("resolve app root: {e}"))
 }
 
 #[tauri::command]
@@ -49,7 +48,7 @@ fn marker_start(state: State<'_, MarkerState>) -> Result<String, String> {
         }
     }
 
-    let root = repo_root()?;
+    let root = app_root()?;
     let python = root
         .join("marker-code")
         .join("venv")
