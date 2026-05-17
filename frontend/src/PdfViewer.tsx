@@ -17,10 +17,15 @@ export default function PdfViewer({ file }: PdfViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const isPointerOverStageRef = useRef(false);
+  const isSpaceDownRef = useRef(false);
+  const isPanningRef = useRef(false);
+  const dragStartRef = useRef({ x: 0, y: 0, scrollLeft: 0, scrollTop: 0 });
   const renderTaskRef = useRef<RenderTask | null>(null);
   const [pdf, setPdf] = useState<PDFDocumentProxy | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
   const [zoom, setZoom] = useState(1);
+  const [isPanMode, setIsPanMode] = useState(false);
+  const [isPanning, setIsPanning] = useState(false);
   const [status, setStatus] = useState("Choose a PDF to preview its original pages.");
 
   function changeZoom(nextZoom: number) {
@@ -64,10 +69,6 @@ export default function PdfViewer({ file }: PdfViewerProps) {
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      if (!event.ctrlKey && !event.metaKey) {
-        return;
-      }
-
       const stage = stageRef.current;
       if (!stage) {
         return;
@@ -75,9 +76,21 @@ export default function PdfViewer({ file }: PdfViewerProps) {
 
       const activeElement = document.activeElement;
       const isStageFocused = activeElement ? stage.contains(activeElement) : false;
-      const shouldHandleZoom = isStageFocused || isPointerOverStageRef.current;
+      const shouldHandleStageShortcut = isStageFocused || isPointerOverStageRef.current;
 
-      if (!shouldHandleZoom) {
+      if (!shouldHandleStageShortcut) {
+        return;
+      }
+
+      if (event.code === "Space") {
+        event.preventDefault();
+        event.stopPropagation();
+        isSpaceDownRef.current = true;
+        setIsPanMode(true);
+        return;
+      }
+
+      if (!event.ctrlKey && !event.metaKey) {
         return;
       }
 
@@ -96,8 +109,23 @@ export default function PdfViewer({ file }: PdfViewerProps) {
       }
     }
 
+    function handleKeyUp(event: KeyboardEvent) {
+      if (event.code !== "Space") {
+        return;
+      }
+
+      isSpaceDownRef.current = false;
+      isPanningRef.current = false;
+      setIsPanMode(false);
+      setIsPanning(false);
+    }
+
     window.addEventListener("keydown", handleKeyDown, { capture: true });
-    return () => window.removeEventListener("keydown", handleKeyDown, { capture: true });
+    window.addEventListener("keyup", handleKeyUp, { capture: true });
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, { capture: true });
+      window.removeEventListener("keyup", handleKeyUp, { capture: true });
+    };
   }, [zoom]);
 
   useEffect(() => {
@@ -152,6 +180,13 @@ export default function PdfViewer({ file }: PdfViewerProps) {
   const pageCount = pdf?.numPages ?? 0;
   const canGoBack = pageNumber > 1;
   const canGoForward = pageCount > 0 && pageNumber < pageCount;
+  const stageClassName = [
+    "page-stage",
+    isPanMode ? "is-pan-mode" : "",
+    isPanning ? "is-panning" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <section className="viewer-panel">
@@ -185,7 +220,7 @@ export default function PdfViewer({ file }: PdfViewerProps) {
       </div>
 
       <div
-        className="page-stage"
+        className={stageClassName}
         ref={stageRef}
         tabIndex={0}
         onMouseEnter={() => {
@@ -196,13 +231,55 @@ export default function PdfViewer({ file }: PdfViewerProps) {
           isPointerOverStageRef.current = false;
         }}
         onClick={() => stageRef.current?.focus({ preventScroll: true })}
+        onPointerDown={(event) => {
+          const stage = stageRef.current;
+          if (!stage || !isSpaceDownRef.current || event.button !== 0) {
+            return;
+          }
+
+          event.preventDefault();
+          stage.focus({ preventScroll: true });
+          stage.setPointerCapture(event.pointerId);
+          dragStartRef.current = {
+            x: event.clientX,
+            y: event.clientY,
+            scrollLeft: stage.scrollLeft,
+            scrollTop: stage.scrollTop
+          };
+          isPanningRef.current = true;
+          setIsPanning(true);
+        }}
+        onPointerMove={(event) => {
+          const stage = stageRef.current;
+          if (!stage || !isPanningRef.current) {
+            return;
+          }
+
+          event.preventDefault();
+          const start = dragStartRef.current;
+          stage.scrollLeft = start.scrollLeft - (event.clientX - start.x);
+          stage.scrollTop = start.scrollTop - (event.clientY - start.y);
+        }}
+        onPointerUp={(event) => {
+          if (stageRef.current?.hasPointerCapture(event.pointerId)) {
+            stageRef.current.releasePointerCapture(event.pointerId);
+          }
+          isPanningRef.current = false;
+          setIsPanning(false);
+        }}
+        onPointerCancel={() => {
+          isPanningRef.current = false;
+          setIsPanning(false);
+        }}
         aria-label="PDF page preview. Use Ctrl plus, Ctrl minus, and Ctrl zero to zoom this preview."
       >
         {status && <p className="viewer-status">{status}</p>}
-        <canvas
-          className={pdf ? "pdf-canvas is-visible" : "pdf-canvas"}
-          ref={canvasRef}
-        />
+        <div className="page-canvas-wrap">
+          <canvas
+            className={pdf ? "pdf-canvas is-visible" : "pdf-canvas"}
+            ref={canvasRef}
+          />
+        </div>
       </div>
     </section>
   );
