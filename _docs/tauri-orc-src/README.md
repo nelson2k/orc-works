@@ -71,12 +71,12 @@ FastAPI server that wraps `marker.converters.pdf.PdfConverter`.
 
 | File | Role |
 | --- | --- |
-| [server.py](../../src/marker-code/server.py) | Two routes: `GET /health` → `{"status": "ok"}`, and `POST /convert` accepting an `UploadFile`, writing it to a temp `.pdf`, running it through `PdfConverter` (lazy-initialized via `create_model_dict()`), and returning `{"markdown": <text>}`. The converter is cached in a module-global `_converter`. |
+| [server.py](../../src/marker-code/server.py) | Two routes: `GET /health` → `{"status": "ok"}`, and `POST /convert` accepting an `UploadFile` plus form fields `page_range` / `model` / `no_llm` / `full_vram`. Translates the fields into a marker `ConfigParser` config, builds a fresh `PdfConverter` per request (sharing a lazy-loaded `_artifact_dict` of surya models), wires the OpenAI LLM service when `no_llm` is false, applies the low-VRAM batch-size preset when `full_vram` is false, runs the converter, and returns `{"markdown": <text>}`. |
 | [requirements-server.txt](../../src/marker-code/requirements-server.txt) | `fastapi>=0.110`, `uvicorn[standard]>=0.27`, `python-multipart>=0.0.9`. `marker` itself is installed separately into the venv. |
-| [local.env](../../src/marker-code/local.env) | `OPENAI_API_KEY=...` and `TORCH_DEVICE=cuda`. **Contains a real-looking API key — should be gitignored.** Not currently loaded by `server.py`. |
+| [local.env](../../src/marker-code/local.env) | `OPENAI_API_KEY=...` and `TORCH_DEVICE=cuda`. Gitignored (`local.env` + `*.env` rules in `.gitignore`); never committed. Not currently loaded by `server.py`. |
 | `venv/` | Local Python virtualenv (see [venv_layout memory](../../../../.claude/projects/c--Users-nelso-dev-017-ocr-works/memory/venv_layout.md) — lives at `marker-code/venv/`, not `.venv`). Holds marker + its deps. |
 
-`server.py` exposes a minimal subset of marker. It does not yet honor `page_range`, `model`, `no_llm`, or `full_vram` — all of which the React form already sends. It also doesn't write `markdownUrl`/`metadataUrl` artifacts that `App.tsx` expects.
+The low-VRAM preset (applied when `full_vram=false`) mirrors the legacy CLI runner: `layout_batch_size=6`, `detection_batch_size=2`, `recognition_batch_size=16`, `table_rec_batch_size=4`, `equation_batch_size=4`. Sending `no_llm=true` skips the OpenAI sidecar entirely; sending `no_llm=false` requires `OPENAI_API_KEY` in the process env (else the route returns 500 with a pointer to `marker-code/local.env`).
 
 ## Build + run flow
 
@@ -89,10 +89,8 @@ Production build: `npm run build` (= `tsc && vite build` → `dist/`), then `car
 
 ## Known gaps / mismatches to be aware of
 
-- **Server ignores most form fields.** `page_range`, `model`, `no_llm`, `full_vram` are sent but not consumed by `server.py`.
 - **No artifact URLs.** `server.py` returns `{ markdown }` only — no persisted `markdownUrl` / `metadataUrl` for download, just inline text.
-- **`local.env` is committed and contains a real-shaped OpenAI key.** Should be rotated and added to `.gitignore`.
-- **`local.env` is not loaded.** `server.py` does not import dotenv or read it; the OpenAI key has no effect today.
+- **`local.env` is not loaded.** `server.py` does not import dotenv or read it; the `OPENAI_API_KEY` and `TORCH_DEVICE` settings have no effect today.
 - **Windows-only paths.** `lib.rs` hardcodes `venv/Scripts/python.exe`; no cross-platform branch.
 - **Product naming.** `productName`, crate name, and window title are all the placeholder `"src"`; the bundle id is `com.nelson.orc-works`.
 - **Leftover template files.** `App.css`, `public/tauri.svg`, `public/vite.svg`, `src/assets/react.svg` are not referenced by the app.
