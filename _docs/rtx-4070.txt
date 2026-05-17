@@ -1,0 +1,183 @@
+RTX-4070 REMOTE MACHINE — RUNBOOK
+=================================
+
+WHAT IT IS
+----------
+Linux box on the home LAN used for heavier OCR / model work that doesn't
+fit on the local 2060 (and so the local Windows machine stays free for
+game-dev work).
+
+  Hostname : ubuntu-rtx4070
+  IP       : 192.168.10.200
+  User     : nelson
+  OS       : Ubuntu 24.04 (kernel 6.17)
+  GPU      : NVIDIA GeForce RTX 4070 (12 GB VRAM, driver 580.x)
+  Python   : 3.12.3 (system)
+
+
+HOW TO CONNECT
+--------------
+There's a wrapper script on the local machine:
+
+  C:\Users\nelso\.local\bin\rtx-4070.cmd  (calls rtx-4070.ps1)
+  C:\Users\nelso\.local\bin\rtx-4070.ps1  (= `ssh nelson@192.168.10.200 @args`)
+
+From local PowerShell:
+
+  rtx-4070                        # interactive shell
+  rtx-4070 'hostname && uname -a' # one-off command
+
+SSH key auth is already configured (~/.ssh/id_ed25519 paired on remote).
+
+
+PROJECT LAYOUT ON REMOTE
+------------------------
+  /home/nelson/dev/017-orc-works/      <- the GitHub repo (typo: "orc" not "ocr")
+    ├─ _docs/                          tracked
+    ├─ pdfs/                           tracked (the 12 books)
+    ├─ run.py                          tracked
+    ├─ marker-code/
+    │   ├─ venv/                       NOT tracked, built locally
+    │   └─ local.env                   NOT tracked, holds OPENAI_API_KEY
+    └─ output/                         NOT tracked, generated
+
+
+INITIAL SETUP (one-time, already done)
+--------------------------------------
+If the box ever gets wiped, redo this:
+
+  rtx-4070
+  cd ~/dev
+  git clone git@github.com:nelson2k/orc-works.git 017-orc-works
+  cd 017-orc-works
+  mkdir marker-code
+  python3.12 -m venv marker-code/venv
+  source marker-code/venv/bin/activate
+  pip install --upgrade pip
+  pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+  pip install marker-pdf[full] python-dotenv openai
+  nano marker-code/local.env
+    # paste:
+    #   OPENAI_API_KEY=sk-proj-...
+    #   TORCH_DEVICE=cuda
+
+Verify CUDA works:
+
+  python -c "import torch; print(torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+  # expect: True NVIDIA GeForce RTX 4070
+
+Sanity-check 1 page (downloads ~3 GB of surya weights on first run):
+
+  python run.py --page-range 0
+  # expect: openai reply: 'OK'  +  TOTAL: 00:0n:nn at the end
+
+
+DAILY WORKFLOW — RUNNING A LONG CONVERSION IN TMUX
+--------------------------------------------------
+Why tmux: if your SSH session drops, plain `python run.py` dies with it.
+tmux keeps the process alive on the remote so you can detach + reattach.
+
+Install (if missing):
+
+  sudo apt install -y tmux
+
+Start a named session and kick off a run:
+
+  rtx-4070
+  cd ~/dev/017-orc-works
+  tmux new -s book
+  source marker-code/venv/bin/activate
+  python run.py --full-vram          # full book, 12 GB GPU defaults
+  # or: python run.py --page-range 0-9 --full-vram   (quick smoke)
+  # or: python run.py "pdfs/Other Book.pdf" --full-vram
+
+Detach (process keeps running):
+  Ctrl+B  then  D
+
+Reattach later (from any fresh SSH):
+  rtx-4070
+  tmux attach -t book
+
+Kill the session for real:
+  exit                              # from inside
+  tmux kill-session -t book         # from outside
+
+List sessions:
+  tmux ls
+
+Useful inside tmux:
+  Ctrl+B  then  [   -> scroll mode (arrows / PgUp/PgDn); q to exit
+  Ctrl+B  then  D   -> detach (most-used)
+  Ctrl+B  then  C   -> new window in the same session
+  Ctrl+B  then  N   -> next window
+
+
+run.py FLAGS (after the openai-only refactor)
+---------------------------------------------
+  python run.py                                # full book, gpt-4o-mini, full-vram if --full-vram set
+  python run.py --no-llm                       # heuristic only (no API spend)
+  python run.py --page-range 0-9               # just first 10 pages (smoke test)
+  python run.py --page-range 0,5-10,20         # mixed ranges
+  python run.py --full-vram                    # drop the 6 GB preset (use on this 4070)
+  python run.py --model gpt-4o                 # bigger / pricier model
+  python run.py "pdfs/Game Programming Patterns.pdf" --full-vram
+  python run.py --layout-batch-size 16 --recognition-batch-size 64  # manual tuning
+
+Default model: gpt-4o-mini  (~$2-4 for the full 1691-page Tricks book).
+
+
+COSTS / TIME ESTIMATES ON THIS BOX
+----------------------------------
+Tricks of the 3D Game Programming Gurus (~1691 pages):
+  Time   : ~1.5-3 hours
+  OpenAI : ~$2-4
+  Output : ~30 MB (markdown + ~650 figure JPEGs)
+
+
+INSPECTING / PULLING RESULTS BACK TO LOCAL
+------------------------------------------
+On the remote:
+
+  ls -la ~/dev/017-orc-works/output/
+  ls -la ~/dev/017-orc-works/output/"Tricks of the 3D Game Programming Gurus"/
+  wc -l ~/dev/017-orc-works/output/"Tricks of the 3D Game Programming Gurus/Tricks of the 3D Game Programming Gurus.md"
+
+From local PowerShell, sync everything back:
+
+  rsync -avP nelson@192.168.10.200:~/dev/017-orc-works/output/ c:/Users/nelso/dev/017-ocr-works/output/
+
+Or just one book's folder:
+
+  rsync -avP "nelson@192.168.10.200:~/dev/017-orc-works/output/Tricks of the 3D Game Programming Gurus/" "c:/Users/nelso/dev/017-ocr-works/output/Tricks of the 3D Game Programming Gurus/"
+
+
+MODEL CACHE LOCATIONS (on remote)
+---------------------------------
+  ~/.cache/datalab/datalab/models/    # surya weights (~3 GB)
+  ~/.cache/huggingface/hub/           # HF mirrors if anything else lands there
+
+Safe to delete to free disk; will re-download on next run.
+
+
+GPU MONITORING
+--------------
+Open a second SSH session (no tmux needed for this), then:
+
+  watch -n 2 nvidia-smi               # refreshes every 2s
+  nvidia-smi --query-gpu=memory.used,memory.total --format=csv -l 2
+
+While `run.py` is running you should see ~5-8 GB used (with --full-vram).
+If you ever see >11.5 GB you're close to OOM and should drop batch sizes.
+
+
+COMMON GOTCHAS
+--------------
+- Folder is "017-orc-works" on the remote (matches the GitHub repo's typo),
+  but "017-ocr-works" on the local Windows box. Be consistent within each.
+- `run.ps1` is Windows-only. On Linux just call `python run.py ...` directly
+  after activating the venv.
+- `pdfs/` is gitignored on local but was committed before that rule existed,
+  so it came down with `git clone` and is also tracked on the remote. That's
+  fine — saved an rsync.
+- `marker-code/local.env` is gitignored (matched by `*.env`); never appears
+  in commits. The remote's copy lives only in `~/dev/017-orc-works/marker-code/local.env`.
