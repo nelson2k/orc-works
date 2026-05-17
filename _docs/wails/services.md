@@ -50,7 +50,3 @@ package sqlite
 ```
 
 These rename methods on the JS side (`ExecContext` → `Execute`), inject extra JS into the generated module, and include sidecar JS files. Useful when the Go ergonomics differ from what JS callers expect.
-
-## Why this matters relative to Tauri
-
-Tauri doesn't ship equivalents. You'd either use a plugin (`tauri-plugin-sql`, `tauri-plugin-notification`, …) or roll your own command + invoke wiring. Wails has these in `pkg/services/`, owned by the framework, with the same generator producing the JS bindings — closer to "batteries included" than Tauri.

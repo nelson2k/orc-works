@@ -13,8 +13,7 @@ Source upstream: <https://github.com/wailsapp/wails>. Two active lines: **v2** (
 - [events.md](events.md) — application events, window events, custom Go↔JS events
 - [services.md](services.md) — built-in services (sqlite, kvstore, fileserver, notifications, dock, log)
 - [mobile.md](mobile.md) — v3's iOS (WKWebView + CGO) and Android (WebView + JNI) story
-- [vs-tauri.md](vs-tauri.md) — comparison against Tauri for this project's context
 
 ## Why these notes exist
 
-The OCR-works project picked Tauri, but Wails is the closest alternative (same single-binary + native-WebView design, swap Rust for Go). These notes capture the parts of Wails that would matter if we ever revisit that decision — bindings ergonomics, mobile story, and the built-in services that don't exist as first-class concepts in Tauri.
+Wails is the candidate desktop-shell framework for this project: single Go binary, native WebView per platform, auto-generated typed JS bindings to Go services. These notes capture the parts that matter for OCR-works — bindings ergonomics, the mobile backends, and the built-in services (SQLite, notifications, KV store, file server) that ship in the framework rather than as third-party plugins.
