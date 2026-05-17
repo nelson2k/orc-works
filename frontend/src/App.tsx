@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useRef, useState } from "react";
 import PdfViewer from "./PdfViewer";
 
 type ConvertResponse = {
@@ -20,6 +20,7 @@ const openAiModels = [
 ];
 
 export default function App() {
+  const abortControllerRef = useRef<AbortController | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const [pageRange, setPageRange] = useState("");
   const [model, setModel] = useState("gpt-4o-mini");
@@ -39,6 +40,8 @@ export default function App() {
     setError("");
     setResult(null);
     setIsConverting(true);
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = new AbortController();
 
     const body = new FormData();
     body.append("pdf", file);
@@ -50,7 +53,8 @@ export default function App() {
     try {
       const response = await fetch("/api/convert", {
         method: "POST",
-        body
+        body,
+        signal: abortControllerRef.current.signal
       });
       const payload = await response.json();
       if (!response.ok) {
@@ -58,10 +62,19 @@ export default function App() {
       }
       setResult(payload);
     } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setError("Conversion stopped.");
+        return;
+      }
       setError(err instanceof Error ? err.message : "Conversion failed.");
     } finally {
+      abortControllerRef.current = null;
       setIsConverting(false);
     }
+  }
+
+  function handleStopConversion() {
+    abortControllerRef.current?.abort();
   }
 
   return (
@@ -132,9 +145,16 @@ export default function App() {
             </label>
           </div>
 
-          <button disabled={isConverting} type="submit">
-            {isConverting ? "Converting..." : "Convert PDF"}
-          </button>
+          <div className="action-row">
+            <button disabled={isConverting} type="submit">
+              {isConverting ? "Converting..." : "Convert PDF"}
+            </button>
+            {isConverting && (
+              <button className="stop-button" type="button" onClick={handleStopConversion}>
+                Stop
+              </button>
+            )}
+          </div>
         </form>
 
         {error && <p className="error">{error}</p>}

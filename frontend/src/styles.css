@@ -175,6 +175,17 @@ button:disabled {
   opacity: 0.7;
 }
 
+.action-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.stop-button {
+  background: linear-gradient(180deg, #ff6b6b 0%, #c93636 100%);
+}
+
 .viewer-panel {
   overflow: hidden;
 }
