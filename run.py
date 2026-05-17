@@ -11,8 +11,11 @@ REPO_ROOT = Path(__file__).parent.resolve()
 DEFAULT_PDF = REPO_ROOT / "pdfs" / "Tricks of the 3D Game Programming Gurus.pdf"
 DEFAULT_OUT = REPO_ROOT / "output"
 
-# cd into marker-code so marker's settings finds local.env (GOOGLE_API_KEY, TORCH_DEVICE)
+# cd into marker-code so marker's settings finds local.env (GOOGLE_API_KEY, TORCH_DEVICE).
+# Also load it ourselves so OPENAI_API_KEY (which marker doesn't auto-mirror) is visible.
 os.chdir(REPO_ROOT / "marker-code")
+from dotenv import load_dotenv  # noqa: E402
+load_dotenv("local.env")
 
 
 @contextmanager
@@ -32,11 +35,60 @@ def step(label):
         print(f"<<< {label} done in {dt:.1f}s", flush=True)
 
 
+def sanity_check_llm(provider: str, cfg: dict) -> None:
+    """Make one tiny round-trip to the chosen LLM so we fail fast on bad keys/quota."""
+    if provider == "gemini":
+        from dotenv import load_dotenv
+        load_dotenv("local.env")
+        key = os.environ.get("GOOGLE_API_KEY") or cfg.get("gemini_api_key")
+        if not key:
+            sys.exit("GOOGLE_API_KEY not set (check marker-code/local.env)")
+        from google import genai
+        client = genai.Client(api_key=key)
+        r = client.models.generate_content(
+            model=cfg.get("gemini_model_name") or "gemini-2.0-flash",
+            contents="reply with the single word OK",
+        )
+        print(f"    gemini reply: {r.text.strip()[:40]!r}")
+    elif provider == "openai":
+        import openai
+        client = openai.OpenAI(api_key=cfg["openai_api_key"])
+        r = client.chat.completions.create(
+            model=cfg["openai_model"],
+            messages=[{"role": "user", "content": "reply with the single word OK"}],
+            max_tokens=10,
+        )
+        print(f"    openai reply: {r.choices[0].message.content.strip()[:40]!r}")
+    elif provider == "ollama":
+        import urllib.request, json
+        url = cfg.get("ollama_base_url") or "http://localhost:11434"
+        model = cfg.get("ollama_model") or "llama3.2-vision"
+        req = urllib.request.Request(
+            f"{url}/api/generate",
+            data=json.dumps({"model": model, "prompt": "say OK", "stream": False}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read())
+        print(f"    ollama reply: {data.get('response', '')[:40]!r}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("pdf", nargs="?", default=str(DEFAULT_PDF))
     ap.add_argument("--output-dir", default=str(DEFAULT_OUT))
     ap.add_argument("--no-llm", action="store_true", help="Disable LLM processors")
+    ap.add_argument(
+        "--provider",
+        choices=("gemini", "openai", "ollama"),
+        default="gemini",
+        help="LLM backend when --use_llm is on (default: gemini)",
+    )
+    ap.add_argument(
+        "--model",
+        default=None,
+        help="Override the model name (e.g. gpt-4o-mini, gemini-2.0-flash, moondream)",
+    )
     ap.add_argument("--page-range", default=None, help="e.g. '0-9' or '0,5-10'")
     ap.add_argument(
         "--full-vram",
@@ -65,11 +117,35 @@ def main():
         sys.exit(f"PDF not found: {pdf_path}")
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    llm_on = not args.no_llm
     print(f"PDF:    {pdf_path}")
     print(f"Output: {out_dir}")
-    print(f"LLM:    {'OFF' if args.no_llm else 'ON (Gemini)'}")
+    print(f"LLM:    {'OFF' if not llm_on else f'ON ({args.provider})'}")
     print(f"Pages:  {args.page_range or 'all'}")
     print(f"VRAM:   {'full (surya defaults)' if args.full_vram else 'low (6 GB preset)'}")
+
+    # Resolve LLM provider settings up-front so the sanity check has them.
+    llm_service_path = None
+    llm_extra_cfg = {}
+    if llm_on:
+        if args.provider == "gemini":
+            llm_service_path = "marker.services.gemini.GoogleGeminiService"
+            if args.model:
+                llm_extra_cfg["gemini_model_name"] = args.model
+        elif args.provider == "openai":
+            llm_service_path = "marker.services.openai.OpenAIService"
+            key = os.environ.get("OPENAI_API_KEY", "")
+            if not key:
+                sys.exit("OPENAI_API_KEY not set (check marker-code/local.env)")
+            llm_extra_cfg["openai_api_key"] = key
+            llm_extra_cfg["openai_model"] = args.model or "gpt-4o-mini"
+        elif args.provider == "ollama":
+            llm_service_path = "marker.services.ollama.OllamaService"
+            if args.model:
+                llm_extra_cfg["ollama_model"] = args.model
+
+        with step(f"Sanity-checking LLM provider ({args.provider})"):
+            sanity_check_llm(args.provider, llm_extra_cfg)
 
     overall_t0 = time.time()
 
@@ -79,7 +155,7 @@ def main():
 
     with step("Building config"):
         from marker.config.parser import ConfigParser
-        cli_opts = {"use_llm": not args.no_llm, "output_dir": str(out_dir)}
+        cli_opts = {"use_llm": llm_on, "output_dir": str(out_dir)}
         if args.page_range:
             cli_opts["page_range"] = args.page_range
         for k in (
@@ -92,17 +168,22 @@ def main():
             v = getattr(args, k)
             if v is not None:
                 cli_opts[k] = v
+        cli_opts.update(llm_extra_cfg)
         cfg_parser = ConfigParser(cli_opts)
         config = cfg_parser.generate_config_dict()
 
     with step("Constructing PdfConverter (incl. LLM service)"):
         from marker.converters.pdf import PdfConverter
+        # ConfigParser only resolves Gemini by default; force the dotted path for others.
+        chosen_service = llm_service_path if llm_on else None
         converter = PdfConverter(
             artifact_dict=artifact_dict,
             config=config,
-            llm_service=cfg_parser.get_llm_service(),
+            llm_service=chosen_service,
         )
         print(f"    processors: {len(converter.processor_list)}")
+        if llm_on:
+            print(f"    llm_service: {chosen_service}")
 
     with step(f"Resolving provider for {pdf_path.name}"):
         from marker.providers.registry import provider_from_filepath

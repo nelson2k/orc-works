@@ -3,3 +3,4 @@ marker-code/venv/
 local.env
 *.env
 output/
+_docs/key.txt
