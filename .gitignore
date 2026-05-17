@@ -4,8 +4,6 @@ local.env
 *.env
 output/
 _docs/key.txt
-backend/data/
-backend/*.log
 __pycache__/
 *.pyc
 node_modules/
