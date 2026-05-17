@@ -10,5 +10,6 @@ frontend/**/*.tsbuildinfo
 frontend/vite.config.js
 frontend/vite.config.d.ts
 backend/data/
+backend/*.log
 __pycache__/
 *.pyc
