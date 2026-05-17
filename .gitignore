@@ -1,5 +1,5 @@
 repos-folder/
-src/marker-code/venv/
+tauri-orc-src/marker-code/venv/
 local.env
 *.env
 output/

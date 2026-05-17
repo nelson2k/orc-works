@@ -3,7 +3,7 @@
 Run standalone:
     venv/Scripts/python.exe -m uvicorn server:app --host 127.0.0.1 --port 7423
 
-The Tauri app at src/src-tauri spawns this same command as a child process.
+The Tauri app at tauri-orc-src/src-tauri spawns this same command as a child process.
 """
 
 import os
