@@ -1,13 +1,14 @@
-import { FormEvent, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import PdfFilePicker from "./PdfFilePicker";
 import PdfViewer from "./PdfViewer";
+import { convertPdf, startMarker, stopMarker, waitForReady } from "./markerClient";
 
 type ConvertResponse = {
   documentName: string;
   markdown: string;
-  markdownUrl: string;
-  metadataUrl: string;
 };
+
+type ServerStatus = "starting" | "ready" | "error";
 
 const openAiModels = [
   { value: "gpt-4o-mini", label: "GPT-4o mini" },
@@ -30,6 +31,36 @@ export default function App() {
   const [result, setResult] = useState<ConvertResponse | null>(null);
   const [error, setError] = useState("");
   const [isConverting, setIsConverting] = useState(false);
+  const [serverStatus, setServerStatus] = useState<ServerStatus>("starting");
+  const [serverError, setServerError] = useState("");
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    async function bootMarker() {
+      try {
+        await startMarker();
+        await waitForReady();
+        if (!isCancelled) {
+          setServerStatus("ready");
+        }
+      } catch (err) {
+        if (!isCancelled) {
+          setServerStatus("error");
+          setServerError(err instanceof Error ? err.message : "Failed to start marker server.");
+        }
+      }
+    }
+
+    bootMarker();
+
+    return () => {
+      isCancelled = true;
+      stopMarker().catch(() => {
+        // best-effort shutdown on unmount; Tauri also kills on app exit
+      });
+    };
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -44,24 +75,15 @@ export default function App() {
     abortControllerRef.current?.abort();
     abortControllerRef.current = new AbortController();
 
-    const body = new FormData();
-    body.append("pdf", file);
-    body.append("page_range", pageRange);
-    body.append("model", model);
-    body.append("no_llm", String(noLlm));
-    body.append("full_vram", String(fullVram));
-
     try {
-      const response = await fetch("/api/convert", {
-        method: "POST",
-        body,
-        signal: abortControllerRef.current.signal
+      const payload = await convertPdf(file, {
+        pageRange,
+        model,
+        noLlm,
+        fullVram,
+        signal: abortControllerRef.current.signal,
       });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw new Error(payload.detail ?? "Conversion failed.");
-      }
-      setResult(payload);
+      setResult({ documentName: file.name, markdown: payload.markdown });
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
         setError("Conversion stopped.");
@@ -85,6 +107,11 @@ export default function App() {
           <div>
             <h1>OCR Works</h1>
             <p>Upload a PDF and convert it with the local Marker backend.</p>
+          </div>
+          <div className={`server-status server-status-${serverStatus}`}>
+            {serverStatus === "starting" && "Starting marker server..."}
+            {serverStatus === "ready" && "Marker server ready"}
+            {serverStatus === "error" && `Marker server failed: ${serverError}`}
           </div>
         </div>
 
@@ -143,7 +170,7 @@ export default function App() {
           </div>
 
           <div className="action-row">
-            <button disabled={isConverting} type="submit">
+            <button disabled={isConverting || serverStatus !== "ready"} type="submit">
               {isConverting ? "Converting..." : "Convert PDF"}
             </button>
             {isConverting && (
@@ -160,10 +187,6 @@ export default function App() {
           <section className="result">
             <div className="result-header">
               <h2>{result.documentName}</h2>
-              <div>
-                <a href={result.markdownUrl}>Markdown</a>
-                <a href={result.metadataUrl}>Metadata</a>
-              </div>
             </div>
             <pre>{result.markdown}</pre>
           </section>

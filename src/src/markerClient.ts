@@ -33,11 +33,30 @@ export async function waitForReady(timeoutMs = 60_000): Promise<void> {
   throw new Error(`marker server did not respond within ${timeoutMs}ms`)
 }
 
-export async function convertPdf(file: File): Promise<{ markdown: string }> {
+export type ConvertOptions = {
+  pageRange?: string
+  model?: string
+  noLlm?: boolean
+  fullVram?: boolean
+  signal?: AbortSignal
+}
+
+export async function convertPdf(
+  file: File,
+  options: ConvertOptions = {},
+): Promise<{ markdown: string }> {
   const base = await markerUrl()
   const form = new FormData()
   form.append('file', file)
-  const res = await fetch(`${base}/convert`, { method: 'POST', body: form })
+  if (options.pageRange) form.append('page_range', options.pageRange)
+  if (options.model) form.append('model', options.model)
+  if (options.noLlm !== undefined) form.append('no_llm', String(options.noLlm))
+  if (options.fullVram !== undefined) form.append('full_vram', String(options.fullVram))
+  const res = await fetch(`${base}/convert`, {
+    method: 'POST',
+    body: form,
+    signal: options.signal,
+  })
   if (!res.ok) throw new Error(`marker /convert failed: ${res.status} ${await res.text()}`)
   return res.json()
 }

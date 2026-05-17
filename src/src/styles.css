@@ -64,6 +64,32 @@ h1 {
   margin-top: 6px;
 }
 
+.server-status {
+  border: 1px solid #334159;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 6px 12px;
+}
+
+.server-status-starting {
+  background: rgba(109, 149, 255, 0.14);
+  border-color: #4969b0;
+  color: #b8caff;
+}
+
+.server-status-ready {
+  background: rgba(70, 200, 130, 0.14);
+  border-color: #3f8a5f;
+  color: #b6ecc8;
+}
+
+.server-status-error {
+  background: rgba(121, 28, 42, 0.24);
+  border-color: #8c3041;
+  color: #ffb8c2;
+}
+
 .panel,
 .result,
 .viewer-panel {
