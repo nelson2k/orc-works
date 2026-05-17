@@ -60,6 +60,6 @@ You can also point it at a real `http.Handler` to embed Gin / chi / standard `ne
 
 ## Lifecycle
 
-The app has well-defined events you can hook (`events.Common.ApplicationStarted`, `events.Common.ThemeChanged`, `events.Common.WindowFocus`, etc.) — see [events.md](events.md). Hooks can cancel events (e.g. a `WindowClosing` hook can prevent the window from closing); listeners fire after the action.
+The app has well-defined events you can hook (`events.Common.ApplicationStarted`, `events.Common.ThemeChanged`, `events.Common.WindowFocus`, etc.). Hooks can cancel events (e.g. a `WindowClosing` hook can prevent the window from closing); listeners fire after the action.
 
 `OnShutdown` in `Options` blocks the shutdown process so cleanup can run.

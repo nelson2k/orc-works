@@ -18,7 +18,7 @@ The pitch from the README:
 | Install | `go install github.com/wailsapp/wails/v2/cmd/wails@latest` | `go install github.com/wailsapp/wails/v3/cmd/wails3@latest` |
 | API entry | `wails.Run(opts)` | `application.New(opts).Run()` — multi-window, services as a first-class concept |
 | IPC | `runtime.EventsOn/Emit` + bound structs | `app.Event.On/Emit` + `application.NewService(&T{})` services |
-| Mobile | No | iOS (WKWebView + CGO) and Android (WebView + JNI) — see [mobile.md](mobile.md) |
+| Mobile | No | iOS (WKWebView + CGO) and Android (WebView + JNI) |
 | Status | Production-ready | Alpha; expect breaking changes |
 
 The v3 docs live in [`repos-folder/wails/v3/`](../../repos-folder/wails/v3/); the v2 source still lives in [`repos-folder/wails/v2/`](../../repos-folder/wails/v2/).
