@@ -1,9 +1,9 @@
 #requires -Version 7
 $ErrorActionPreference = 'Stop'
 
-$RepoRoot = $PSScriptRoot
+$RepoRoot = Split-Path -Parent $PSScriptRoot
 $Venv     = Join-Path $RepoRoot 'marker-code\venv\Scripts\Activate.ps1'
-$Script   = Join-Path $RepoRoot 'run.py'
+$Script   = Join-Path $PSScriptRoot 'run.py'
 
 if (-not (Test-Path $Venv))   { throw "Venv not found: $Venv" }
 if (-not (Test-Path $Script)) { throw "Script not found: $Script" }

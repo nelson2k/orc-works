@@ -7,7 +7,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).parent.resolve()
+REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PDF = REPO_ROOT / "pdfs" / "Tricks of the 3D Game Programming Gurus.pdf"
 DEFAULT_OUT = REPO_ROOT / "output"
 
