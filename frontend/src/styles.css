@@ -99,6 +99,82 @@ select {
   padding: 9px 11px;
 }
 
+.file-input {
+  display: none;
+}
+
+.pdf-picker {
+  background: #0a1020;
+  border: 1px solid #334159;
+  border-radius: 6px;
+  min-height: 72px;
+  padding: 10px;
+}
+
+.choose-pdf-button {
+  background: #17243a;
+  border: 1px solid #40516c;
+  min-height: 40px;
+}
+
+.selected-file {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+  min-width: 0;
+}
+
+.thumbnail-frame {
+  align-items: center;
+  background:
+    linear-gradient(45deg, rgba(255, 255, 255, 0.035) 25%, transparent 25%),
+    linear-gradient(-45deg, rgba(255, 255, 255, 0.035) 25%, transparent 25%),
+    #070b13;
+  background-position:
+    0 0,
+    0 8px;
+  background-size: 16px 16px;
+  border: 1px solid #40516c;
+  border-radius: 5px;
+  display: flex;
+  flex: 0 0 84px;
+  height: 96px;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.thumbnail-frame canvas {
+  background: white;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
+  max-height: 84px;
+  max-width: 68px;
+}
+
+.thumbnail-frame span {
+  color: #96a3ba;
+  font-size: 12px;
+  padding: 8px;
+  text-align: center;
+}
+
+.selected-file-details {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.selected-file-details strong {
+  color: #edf3ff;
+  overflow-wrap: anywhere;
+}
+
+.selected-file-details button {
+  background: #17243a;
+  border: 1px solid #40516c;
+  justify-self: start;
+  min-height: 36px;
+}
+
 select {
   appearance: none;
   background-image:
@@ -124,7 +200,7 @@ input::placeholder {
   color: #7f8da6;
 }
 
-input[type="file"]::file-selector-button {
+  input[type="file"]::file-selector-button {
   background: #17243a;
   border: 1px solid #40516c;
   border-radius: 5px;

@@ -21,6 +21,56 @@ app.add_middleware(
 )
 
 
+def _marker_page_range(page_range: str | None) -> str | None:
+    if not page_range or page_range.strip().lower() == "all":
+        return None
+
+    marker_parts: list[str] = []
+    for raw_part in page_range.split(","):
+        part = raw_part.strip()
+        if not part:
+            continue
+
+        if "-" in part:
+            bounds = [value.strip() for value in part.split("-", 1)]
+            if len(bounds) != 2 or not all(value.isdigit() for value in bounds):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Use page ranges like 1, 1-10, or 1,6-11.",
+                )
+
+            start, end = (int(value) for value in bounds)
+            if start < 1 or end < 1:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Page range starts at 1 in the web app. Use 1 for the first page.",
+                )
+            if end < start:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Page range end must be greater than or equal to the start.",
+                )
+
+            marker_parts.append(f"{start - 1}-{end - 1}")
+            continue
+
+        if not part.isdigit():
+            raise HTTPException(
+                status_code=400,
+                detail="Use page ranges like 1, 1-10, or 1,6-11.",
+            )
+
+        page = int(part)
+        if page < 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Page range starts at 1 in the web app. Use 1 for the first page.",
+            )
+        marker_parts.append(str(page - 1))
+
+    return ",".join(marker_parts) or None
+
+
 @app.get("/api/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -47,7 +97,7 @@ async def convert(
         output_root=OUTPUT_ROOT,
         use_llm=not no_llm,
         model=model,
-        page_range=page_range.strip() or None if page_range else None,
+        page_range=_marker_page_range(page_range),
         full_vram=full_vram,
     )
 

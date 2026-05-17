@@ -1,4 +1,5 @@
 import { FormEvent, useRef, useState } from "react";
+import PdfFilePicker from "./PdfFilePicker";
 import PdfViewer from "./PdfViewer";
 
 type ConvertResponse = {
@@ -92,18 +93,14 @@ export default function App() {
         <form className="panel" onSubmit={handleSubmit}>
           <label>
             PDF file
-            <input
-              accept="application/pdf"
-              type="file"
-              onChange={(event) => setFile(event.target.files?.[0] ?? null)}
-            />
+            <PdfFilePicker file={file} onFileChange={setFile} />
           </label>
 
           <div className="grid">
             <label>
               Page range
               <input
-                placeholder="all, 0-9, or 0,5-10"
+                placeholder="all, 1-10, or 1,6-11"
                 value={pageRange}
                 onChange={(event) => setPageRange(event.target.value)}
               />
