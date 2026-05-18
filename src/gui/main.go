@@ -57,7 +57,7 @@ func (w *Worker) ensure() error {
 	return nil
 }
 
-func (w *Worker) request(req map[string]any) (map[string]any, error) {
+func (w *Worker) request(req map[string]any, onProgress func(map[string]any)) (map[string]any, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if err := w.ensure(); err != nil {
@@ -70,17 +70,25 @@ func (w *Worker) request(req map[string]any) (map[string]any, error) {
 	if _, err := w.stdin.Write(append(b, '\n')); err != nil {
 		return nil, err
 	}
-	if !w.stdout.Scan() {
-		if e := w.stdout.Err(); e != nil {
-			return nil, e
+	for {
+		if !w.stdout.Scan() {
+			if e := w.stdout.Err(); e != nil {
+				return nil, e
+			}
+			return nil, fmt.Errorf("worker closed stdout")
 		}
-		return nil, fmt.Errorf("worker closed stdout")
+		var resp map[string]any
+		if err := json.Unmarshal(w.stdout.Bytes(), &resp); err != nil {
+			return nil, fmt.Errorf("decode worker reply: %w (raw: %q)", err, w.stdout.Bytes())
+		}
+		if t, _ := resp["type"].(string); t == "progress" {
+			if onProgress != nil {
+				onProgress(resp)
+			}
+			continue
+		}
+		return resp, nil
 	}
-	var resp map[string]any
-	if err := json.Unmarshal(w.stdout.Bytes(), &resp); err != nil {
-		return nil, fmt.Errorf("decode worker reply: %w (raw: %q)", err, w.stdout.Bytes())
-	}
-	return resp, nil
 }
 
 func (w *Worker) shutdown() {
@@ -140,6 +148,7 @@ func main() {
 	textArea.Wrapping = fyne.TextWrapWord
 
 	pageLabel := widget.NewLabel("")
+	statusLabel := widget.NewLabel("")
 
 	var (
 		curPath  string
@@ -215,7 +224,7 @@ func main() {
 				"path": path,
 				"page": page,
 				"dpi":  120,
-			})
+			}, nil)
 			if err != nil {
 				fyne.Do(func() {
 					dialog.ShowError(err, win)
@@ -272,18 +281,51 @@ func main() {
 			return
 		}
 		setBusy(true)
-		textArea.SetText("Running OCR...")
+		textArea.SetText("")
+		statusLabel.SetText("starting...")
+
+		var lastStage string
+		onProgress := func(ev map[string]any) {
+			kind, _ := ev["kind"].(string)
+			var text string
+			switch kind {
+			case "stage":
+				if name, ok := ev["name"].(string); ok {
+					lastStage = name
+					text = "● " + name
+				}
+			case "tqdm":
+				desc, _ := ev["desc"].(string)
+				n, _ := ev["n"].(float64)
+				total, _ := ev["total"].(float64)
+				prefix := lastStage
+				if prefix == "" {
+					prefix = "..."
+				}
+				if total > 0 {
+					text = fmt.Sprintf("● %s — %s %d/%d", prefix, desc, int(n), int(total))
+				} else if desc != "" {
+					text = fmt.Sprintf("● %s — %s", prefix, desc)
+				} else {
+					text = "● " + prefix
+				}
+			default:
+				return
+			}
+			fyne.Do(func() { statusLabel.SetText(text) })
+		}
 
 		go func() {
 			resp, err := worker.request(map[string]any{
 				"cmd":  "ocr",
 				"path": path,
 				"page": page,
-			})
+			}, onProgress)
 			if err != nil {
 				fyne.Do(func() {
 					dialog.ShowError(err, win)
 					textArea.SetText("")
+					statusLabel.SetText("")
 					setBusy(false)
 				})
 				return
@@ -292,6 +334,7 @@ func main() {
 				fyne.Do(func() {
 					dialog.ShowError(fmt.Errorf("%v", resp["message"]), win)
 					textArea.SetText("")
+					statusLabel.SetText("")
 					setBusy(false)
 				})
 				return
@@ -299,6 +342,7 @@ func main() {
 			text, _ := resp["text"].(string)
 			fyne.Do(func() {
 				textArea.SetText(text)
+				statusLabel.SetText("done")
 				setBusy(false)
 			})
 		}()
@@ -338,7 +382,7 @@ func main() {
 	defer close(stop)
 	go runMetricsLoop(stop, cpuBar, ramBar, gpuBar, vramBar, tempBar)
 
-	win.SetContent(container.NewBorder(topBar, nil, metricsCol, nil, split))
+	win.SetContent(container.NewBorder(topBar, statusLabel, metricsCol, nil, split))
 	win.Resize(fyne.NewSize(1200, 800))
 	win.CenterOnScreen()
 	win.ShowAndRun()

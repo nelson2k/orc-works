@@ -7,7 +7,7 @@ Fyne desktop app entry point. Sibling files [vbar.go](../../src/gui/vbar.go) and
 `Worker` struct owns the Python child process:
 
 - `ensure()` lazily spawns `../venv/Scripts/python.exe ../worker.py` (paths relative to `src/gui/`) and wires `StdinPipe` + a `bufio.Scanner` over `StdoutPipe` with a 64 MiB max line so base64 PNGs and big OCR replies fit.
-- `request(map)` marshals JSON, writes one line, scans one line back. Mutex-guarded so the UI can fire requests from multiple goroutines safely.
+- `request(map, onProgress)` marshals JSON, writes one line, then scans lines back in a loop. Any reply with `type=="progress"` is handed to `onProgress` (if non-nil) and the loop continues; the first non-progress reply is returned. Mutex-guarded so the UI can fire requests from multiple goroutines safely.
 - `shutdown()` (deferred from `main`) sends `{"cmd":"quit"}` and `Wait`s.
 
 ## UI layout
@@ -16,9 +16,10 @@ Fyne desktop app entry point. Sibling files [vbar.go](../../src/gui/vbar.go) and
 - Center: `canvas.Image` inside a `container.Scroll`, `ImageFillContain`, min size 500×700.
 - Right: multi-line `widget.Entry` with word wrap for OCR text.
 - Top bar: **Open PDF** + **OCR Page** on the left; **Prev / page label / Next** on the right.
+- Bottom: `statusLabel` — single-line label that shows the current OCR pipeline stage and tqdm batch progress while OCR is running.
 - Window 1200×800, centered.
 
-The center+right pair is an `HSplit` (offset 0.6). The metrics column slots into the left of `container.NewBorder(topBar, nil, metricsCol, nil, split)`.
+The center+right pair is an `HSplit` (offset 0.6). The metrics column slots into the left of `container.NewBorder(topBar, statusLabel, metricsCol, nil, split)`.
 
 ## State
 
@@ -28,7 +29,7 @@ Three locals capture the open doc: `curPath`, `curPage`, `curTotal`. `setBusy(bo
 
 - **Open PDF**: `github.com/sqweek/dialog` native file picker filtered to `*.pdf`, then `render(0)`.
 - **render(page)**: goroutine → `worker.request({cmd:"render", path, page, dpi:120})` → base64-decode PNG → `image.Decode` → marshal back to UI thread via `fyne.Do` to assign `imgCanvas.Image` + refresh. Updates `curTotal` from the reply's `pages`.
-- **OCR Page**: goroutine → `worker.request({cmd:"ocr", path, page})` → text area shows the markdown returned by marker. First call is slow (model load); see [worker-py.md](worker-py.md).
+- **OCR Page**: goroutine → `worker.request({cmd:"ocr", path, page}, onProgress)` → text area shows the markdown returned by marker. The `onProgress` callback receives stage events (`● layout`, `● ocr_recognition`, …) and tqdm batch events (`● ocr_recognition — Recognizing 3/10`) and pushes the formatted string into `statusLabel` via `fyne.Do`. First call is slow (model load); see [worker-py.md](worker-py.md).
 - **Prev / Next**: bounds-checked `render(curPage±1)`.
 
 All worker replies are checked for `type == "error"` and surfaced via `dialog.ShowError`.

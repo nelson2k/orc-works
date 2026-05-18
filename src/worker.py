@@ -1,16 +1,73 @@
 import sys
+import os
 import json
 import base64
+import threading
 import traceback
 
-import pymupdf
 
-
-_marker_models = None
+_send_lock = threading.Lock()
 
 
 def send(msg):
-    print(json.dumps(msg), flush=True)
+    line = json.dumps(msg) + "\n"
+    with _send_lock:
+        sys.stdout.write(line)
+        sys.stdout.flush()
+
+
+def send_stage(name):
+    send({"type": "progress", "kind": "stage", "name": name})
+
+
+# Patch tqdm BEFORE marker/surya import it, so progress bars become JSON events.
+import tqdm as _tqdm_pkg
+import tqdm.auto as _tqdm_auto
+
+_OrigTqdm = _tqdm_pkg.tqdm
+_devnull = open(os.devnull, "w")
+
+
+def _emit_tqdm(t, event):
+    try:
+        send({
+            "type": "progress",
+            "kind": "tqdm",
+            "event": event,
+            "desc": getattr(t, "desc", "") or "",
+            "n": getattr(t, "n", 0),
+            "total": getattr(t, "total", None) or 0,
+        })
+    except Exception:
+        pass
+
+
+class _EventTqdm(_OrigTqdm):
+    def __init__(self, *args, **kwargs):
+        kwargs["file"] = _devnull
+        kwargs.setdefault("leave", False)
+        super().__init__(*args, **kwargs)
+        _emit_tqdm(self, "start")
+
+    def update(self, n=1):
+        ret = super().update(n)
+        _emit_tqdm(self, "tick")
+        return ret
+
+    def close(self):
+        ret = super().close()
+        _emit_tqdm(self, "end")
+        return ret
+
+
+_tqdm_pkg.tqdm = _EventTqdm
+_tqdm_auto.tqdm = _EventTqdm
+
+
+import pymupdf  # noqa: E402
+
+
+_marker_models = None
 
 
 def render(path, page, dpi):
@@ -37,6 +94,7 @@ def render(path, page, dpi):
 def _ensure_marker():
     global _marker_models
     if _marker_models is None:
+        send_stage("loading_models")
         from marker.models import create_model_dict
         _marker_models = create_model_dict()
     return _marker_models
@@ -45,19 +103,53 @@ def _ensure_marker():
 def ocr(path, page):
     from marker.converters.pdf import PdfConverter
     from marker.output import text_from_rendered
+    from marker.providers.registry import provider_from_filepath
+    from marker.builders.document import DocumentBuilder
+    from marker.builders.line import LineBuilder
+    from marker.builders.ocr import OcrBuilder
+    from marker.builders.structure import StructureBuilder
 
     models = _ensure_marker()
-    converter = PdfConverter(
-        artifact_dict=models,
-        config={"page_range": [page]},
-    )
-    rendered = converter(path)
+    config = {"page_range": [page]}
+
+    send_stage("init_converter")
+    converter = PdfConverter(artifact_dict=models, config=config)
+
+    send_stage("open_pdf")
+    provider_cls = provider_from_filepath(path)
+    provider = provider_cls(path, converter.config)
+
+    send_stage("rasterize")
+    doc_builder = DocumentBuilder(converter.config)
+    document = doc_builder.build_document(provider)
+
+    send_stage("layout")
+    layout_builder = converter.resolve_dependencies(converter.layout_builder_class)
+    layout_builder(document, provider)
+
+    send_stage("line_detection")
+    line_builder = converter.resolve_dependencies(LineBuilder)
+    line_builder(document, provider)
+
+    if not doc_builder.disable_ocr:
+        send_stage("ocr_recognition")
+        ocr_builder = converter.resolve_dependencies(OcrBuilder)
+        ocr_builder(document, provider)
+
+    send_stage("structure")
+    structure_builder = converter.resolve_dependencies(StructureBuilder)
+    structure_builder(document)
+
+    for processor in converter.processor_list:
+        send_stage(f"processor:{type(processor).__name__}")
+        processor(document)
+
+    send_stage("render")
+    renderer = converter.resolve_dependencies(converter.renderer)
+    rendered = renderer(document)
+
     text, _, _ = text_from_rendered(rendered)
-    return {
-        "type": "text",
-        "page": page,
-        "text": text,
-    }
+    return {"type": "text", "page": page, "text": text}
 
 
 def main():
