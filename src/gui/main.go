@@ -287,6 +287,22 @@ func main() {
 		var lastStage string
 		onProgress := func(ev map[string]any) {
 			kind, _ := ev["kind"].(string)
+			if kind == "image" {
+				pngB64, _ := ev["png_base64"].(string)
+				pngBytes, err := base64.StdEncoding.DecodeString(pngB64)
+				if err != nil {
+					return
+				}
+				img, _, err := image.Decode(bytes.NewReader(pngBytes))
+				if err != nil {
+					return
+				}
+				fyne.Do(func() {
+					imgCanvas.Image = img
+					imgCanvas.Refresh()
+				})
+				return
+			}
 			var text string
 			switch kind {
 			case "stage":

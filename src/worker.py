@@ -1,5 +1,6 @@
 import sys
 import os
+import io
 import json
 import base64
 import threading
@@ -100,6 +101,58 @@ def _ensure_marker():
     return _marker_models
 
 
+_BLOCK_COLORS = {
+    "Text": (60, 130, 220),
+    "TextInlineMath": (60, 130, 220),
+    "SectionHeader": (220, 60, 60),
+    "Picture": (220, 140, 80),
+    "Figure": (220, 140, 80),
+    "Table": (60, 180, 100),
+    "TableCell": (90, 200, 130),
+    "Form": (200, 110, 200),
+    "Equation": (180, 100, 220),
+    "Code": (110, 110, 110),
+    "Caption": (140, 200, 100),
+    "Footnote": (150, 150, 150),
+    "ListItem": (210, 200, 70),
+    "PageHeader": (180, 180, 180),
+    "PageFooter": (180, 180, 180),
+    "TableOfContents": (90, 180, 200),
+    "ComplexRegion": (180, 60, 130),
+}
+
+
+def _emit_layout_overlay(document, page_idx=0):
+    from PIL import ImageDraw
+
+    page_group = document.pages[page_idx]
+    base_img = page_group.get_image(highres=True).copy().convert("RGB")
+
+    page_w, page_h = page_group.polygon.size
+    img_w, img_h = base_img.size
+    if page_w <= 0 or page_h <= 0:
+        return
+    sx = img_w / page_w
+    sy = img_h / page_h
+
+    draw = ImageDraw.Draw(base_img)
+    for block in page_group.structure_blocks(document):
+        bbox = block.polygon.bbox
+        x0, y0, x1, y1 = bbox[0] * sx, bbox[1] * sy, bbox[2] * sx, bbox[3] * sy
+        type_name = getattr(block.block_type, "name", str(block.block_type))
+        color = _BLOCK_COLORS.get(type_name, (128, 128, 128))
+        draw.rectangle([x0, y0, x1, y1], outline=color, width=4)
+
+    buf = io.BytesIO()
+    base_img.save(buf, format="PNG")
+    send({
+        "type": "progress",
+        "kind": "image",
+        "page": page_group.page_id,
+        "png_base64": base64.b64encode(buf.getvalue()).decode("ascii"),
+    })
+
+
 def ocr(path, page):
     from marker.converters.pdf import PdfConverter
     from marker.output import text_from_rendered
@@ -126,6 +179,10 @@ def ocr(path, page):
     send_stage("layout")
     layout_builder = converter.resolve_dependencies(converter.layout_builder_class)
     layout_builder(document, provider)
+    try:
+        _emit_layout_overlay(document)
+    except Exception:
+        send({"type": "progress", "kind": "stage", "name": "overlay_failed"})
 
     send_stage("line_detection")
     line_builder = converter.resolve_dependencies(LineBuilder)
