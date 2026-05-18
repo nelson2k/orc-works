@@ -20,6 +20,7 @@ import (
 	"fyne.io/fyne/v2/canvas"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
+	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/widget"
 	nfd "github.com/sqweek/dialog"
 )
@@ -142,7 +143,31 @@ func main() {
 	imgCanvas := canvas.NewImageFromImage(nil)
 	imgCanvas.FillMode = canvas.ImageFillContain
 	imgCanvas.SetMinSize(fyne.NewSize(500, 700))
-	scrollable := container.NewScroll(imgCanvas)
+
+	ctrlDown := false
+	spaceDown := false
+	zoomWrap := newZoomableImage(imgCanvas, &ctrlDown, &spaceDown)
+	scrollable := container.NewScroll(zoomWrap)
+	zoomWrap.parent = scrollable
+
+	if dc, ok := win.Canvas().(desktop.Canvas); ok {
+		dc.SetOnKeyDown(func(e *fyne.KeyEvent) {
+			switch e.Name {
+			case desktop.KeyControlLeft, desktop.KeyControlRight:
+				ctrlDown = true
+			case fyne.KeySpace:
+				spaceDown = true
+			}
+		})
+		dc.SetOnKeyUp(func(e *fyne.KeyEvent) {
+			switch e.Name {
+			case desktop.KeyControlLeft, desktop.KeyControlRight:
+				ctrlDown = false
+			case fyne.KeySpace:
+				spaceDown = false
+			}
+		})
+	}
 
 	textArea := widget.NewMultiLineEntry()
 	textArea.Wrapping = fyne.TextWrapWord
