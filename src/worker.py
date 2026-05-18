@@ -1,10 +1,16 @@
 import sys
 import os
 import io
+import re
 import json
 import base64
 import threading
 import traceback
+
+
+REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+OUTPUT_ROOT = os.path.join(REPO_ROOT, "output")
+_FS_UNSAFE = re.compile(r'[<>:"/\\|?*]')
 
 
 _send_lock = threading.Lock()
@@ -205,8 +211,34 @@ def ocr(path, page):
     renderer = converter.resolve_dependencies(converter.renderer)
     rendered = renderer(document)
 
-    text, _, _ = text_from_rendered(rendered)
-    return {"type": "text", "page": page, "text": text}
+    text, _, images = text_from_rendered(rendered)
+
+    send_stage("saving")
+    out_dir = _save_page_output(path, page, text, images)
+
+    return {
+        "type": "text",
+        "page": page,
+        "text": text,
+        "saved_to": out_dir,
+    }
+
+
+def _save_page_output(pdf_path, page, text, images):
+    pdf_stem = _FS_UNSAFE.sub("_", os.path.splitext(os.path.basename(pdf_path))[0])
+    out_dir = os.path.join(OUTPUT_ROOT, pdf_stem)
+    os.makedirs(out_dir, exist_ok=True)
+
+    md_path = os.path.join(out_dir, f"page_{page + 1:04d}.md")
+    with open(md_path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(text)
+
+    for filename, img in (images or {}).items():
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+        img.save(os.path.join(out_dir, filename))
+
+    return out_dir
 
 
 def main():

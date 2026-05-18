@@ -356,9 +356,14 @@ func main() {
 				return
 			}
 			text, _ := resp["text"].(string)
+			savedTo, _ := resp["saved_to"].(string)
 			fyne.Do(func() {
 				textArea.SetText(text)
-				statusLabel.SetText("done")
+				if savedTo != "" {
+					statusLabel.SetText("saved → " + savedTo)
+				} else {
+					statusLabel.SetText("done")
+				}
 				setBusy(false)
 			})
 		}()
