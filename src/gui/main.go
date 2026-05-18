@@ -193,9 +193,31 @@ func main() {
 			render(curPage + 1)
 		}
 	})
-	ocrBtn := widget.NewButton("OCR Page", nil)
-	ocrPDFBtn := widget.NewButton("OCR PDF", nil)
+	ocrBtn := widget.NewButton("Extract Page", nil)
+	ocrPDFBtn := widget.NewButton("Extract PDF", nil)
 	openBtn := widget.NewButton("Open PDF", nil)
+
+	engineLabels := []string{
+		"Auto",
+		"Marker",
+		"Marker + LLM",
+		"VLM (Qwen2.5-VL)",
+	}
+	engineIDs := map[string]string{
+		"Auto":             "auto",
+		"Marker":           "marker",
+		"Marker + LLM":     "marker_llm",
+		"VLM (Qwen2.5-VL)": "vlm",
+	}
+	engineSelect := widget.NewSelect(engineLabels, nil)
+	engineSelect.SetSelected("Auto")
+
+	currentEngine := func() string {
+		if id, ok := engineIDs[engineSelect.Selected]; ok {
+			return id
+		}
+		return "auto"
+	}
 
 	prevBtn.Disable()
 	nextBtn.Disable()
@@ -209,9 +231,11 @@ func main() {
 			nextBtn.Disable()
 			ocrBtn.Disable()
 			ocrPDFBtn.Disable()
+			engineSelect.Disable()
 			return
 		}
 		openBtn.Enable()
+		engineSelect.Enable()
 		if curTotal == 0 {
 			prevBtn.Disable()
 			nextBtn.Disable()
@@ -360,15 +384,17 @@ func main() {
 		if path == "" {
 			return
 		}
+		engine := currentEngine()
 		setBusy(true)
 		textArea.SetText("")
-		statusLabel.SetText("starting...")
+		statusLabel.SetText(fmt.Sprintf("starting (%s)...", engine))
 
 		go func() {
 			resp, err := worker.request(map[string]any{
-				"cmd":  "ocr",
-				"path": path,
-				"page": page,
+				"cmd":    "ocr",
+				"path":   path,
+				"page":   page,
+				"engine": engine,
 			}, makeOCRProgress(page))
 			if err != nil {
 				fyne.Do(func() {
@@ -390,12 +416,17 @@ func main() {
 			}
 			text, _ := resp["text"].(string)
 			savedTo, _ := resp["saved_to"].(string)
+			usedEngine, _ := resp["engine"].(string)
 			fyne.Do(func() {
 				textArea.SetText(text)
+				prefix := ""
+				if usedEngine != "" {
+					prefix = "[" + usedEngine + "] "
+				}
 				if savedTo != "" {
-					statusLabel.SetText("saved → " + savedTo)
+					statusLabel.SetText(prefix + "saved → " + savedTo)
 				} else {
-					statusLabel.SetText("done")
+					statusLabel.SetText(prefix + "done")
 				}
 				setBusy(false)
 			})
@@ -408,9 +439,10 @@ func main() {
 		if path == "" || total == 0 {
 			return
 		}
+		engine := currentEngine()
 		setBusy(true)
 		textArea.SetText("")
-		statusLabel.SetText(fmt.Sprintf("starting PDF OCR: %d pages", total))
+		statusLabel.SetText(fmt.Sprintf("starting PDF extract (%s): %d pages", engine, total))
 
 		go func() {
 			var allText bytes.Buffer
@@ -421,13 +453,14 @@ func main() {
 				fyne.Do(func() {
 					curPage = page
 					updateLabel()
-					statusLabel.SetText(fmt.Sprintf("OCR PDF: page %d of %d", page+1, total))
+					statusLabel.SetText(fmt.Sprintf("extract PDF (%s): page %d of %d", engine, page+1, total))
 				})
 
 				resp, err := worker.request(map[string]any{
-					"cmd":  "ocr",
-					"path": path,
-					"page": page,
+					"cmd":    "ocr",
+					"path":   path,
+					"page":   page,
+					"engine": engine,
 				}, makeOCRProgress(page))
 				if err != nil {
 					fyne.Do(func() {
@@ -448,6 +481,7 @@ func main() {
 
 				text, _ := resp["text"].(string)
 				savedTo, _ := resp["saved_to"].(string)
+				usedEngine, _ := resp["engine"].(string)
 				if savedTo != "" {
 					lastSavedTo = savedTo
 				}
@@ -457,9 +491,13 @@ func main() {
 				allText.WriteString(fmt.Sprintf("# Page %d\n\n%s", page+1, text))
 
 				currentText := allText.String()
+				suffix := ""
+				if usedEngine != "" {
+					suffix = " [" + usedEngine + "]"
+				}
 				fyne.Do(func() {
 					textArea.SetText(currentText)
-					statusLabel.SetText(fmt.Sprintf("OCR PDF: completed page %d of %d", page+1, total))
+					statusLabel.SetText(fmt.Sprintf("extract PDF: completed page %d of %d%s", page+1, total, suffix))
 				})
 			}
 
@@ -490,7 +528,7 @@ func main() {
 		render(0)
 	}
 
-	leftBox := container.NewHBox(openBtn, ocrBtn, ocrPDFBtn)
+	leftBox := container.NewHBox(openBtn, engineSelect, ocrBtn, ocrPDFBtn)
 	navBox := container.NewHBox(prevBtn, pageLabel, nextBtn)
 	topBar := container.NewBorder(nil, nil, leftBox, navBox, nil)
 
