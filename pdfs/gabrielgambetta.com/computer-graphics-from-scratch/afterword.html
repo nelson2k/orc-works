@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html class="cgfs" lang="en" xml:lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, user-scalable=yes" name="viewport"/>
+<title>Afterword - Computer Graphics from Scratch - Gabriel Gambetta</title>
+<style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+</style>
+<link href="../css/style.css" rel="stylesheet"/>
+<!--[if lt IE 9]>
+<script src="//cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv-printshiv.min.js"></script>
+<![endif]-->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.2/MathJax.js?config=TeX-AMS-MML_HTMLorMML" type="text/javascript"></script>
+<script src="../js/jquery-3.2.1.min.js"></script>
+<!-- Google tag (gtag.js) -->
+<script async="" src="https://www.googletagmanager.com/gtag/js?id=G-M38VSQ9GME"></script>
+<script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-M38VSQ9GME');
+</script>
+</head>
+<body>
+<div class="main">
+<div class="nav">
+<a href="index.html">&lt;&lt; Computer Graphics from Scratch</a> <a class="homelink" href="https://gabrielgambetta.com/index.html">Gabriel Gambetta</a>
+</div>
+<div style="clear:both;"></div>
+<h1 class="unnumbered" id="afterword">Afterword</h1>
+<p>Congratulations! You now have a good understanding of how 3D rendering works. You’ve created a raytracer and a rasterizer and gained a good conceptual understanding of the algorithms and math that power them.</p>
+<p>However, as I explained in the introduction, it’s impossible to cover the entirety of 3D rendering in a single book. Here’s a few topics you might want to explore on your own to expand your horizons:</p>
+<dl>
+<dt>Global illumination, including radiosity and path tracing</dt>
+<dd><p>Find out how deep the “ambient light” rabbit hole goes!</p>
+</dd>
+<dt>Physically based rendering</dt>
+<dd><p>Illumination and shading models that don’t just look good, but model real-life physics.</p>
+</dd>
+<dt>Voxel rendering</dt>
+<dd><p>Think Minecraft, or MRI scans in hospitals.</p>
+</dd>
+<dt>Level-of-detail algorithms</dt>
+<dd><p>This includes offline and dynamic mesh simplification, impostors, and billboards. These algorithms are how we efficiently render forests with billions of plants, crowds of millions of people, or extremely detailed 3D models.</p>
+</dd>
+<dt>Acceleration structures</dt>
+<dd><p>This includes binary space partition trees, k-d trees, quadtrees, and octrees. These structures help efficiently render massive scenes, such as an entire city.</p>
+</dd>
+<dt>Terrain rendering</dt>
+<dd><p>How to efficiently render a terrain model that might be as big as a country yet have human-scale detail.</p>
+</dd>
+<dt>Atmospheric effects and particle systems</dt>
+<dd><p>Fog, rain, and smoke, but also some less intuitive materials like grass and hair.</p>
+</dd>
+<dt>Image-based lighting</dt>
+<dd><p>Similar to environment mapping, but for diffuse lighting.</p>
+</dd>
+<dt>High dynamic range, gamma correction</dt>
+<dd><p>The color representation rabbit hole also goes deep.</p>
+</dd>
+<dt>Caustics</dt>
+<dd><p>Also known as “the moving white patterns at the bottom of the swimming pool.”</p>
+</dd>
+<dt>Procedural generation of textures and models</dt>
+<dd><p>Add more variety and possibly infinitely big scenes.</p>
+</dd>
+<dt>Hardware acceleration</dt>
+<dd><p>Using OpenGL, Vulkan, DirectX, and others to run graphics algorithms on GPUs.</p>
+</dd>
+</dl>
+<p>Of course, there are many other topics, and that’s just 3D rendering! Computer graphics is an even broader subject. Here are some areas you might want to investigate:</p>
+<dl>
+<dt>Font rendering</dt>
+<dd><p>This is surprisingly more complex than you might think.</p>
+</dd>
+<dt>Image compression</dt>
+<dd><p>How to store images in the least amount of space.</p>
+</dd>
+<dt>Image processing (e.g. transforming and filtering)</dt>
+<dd><p>Think Instagram filters.</p>
+</dd>
+<dt>Image recognition</dt>
+<dd><p>Is that a dog or a cat?</p>
+</dd>
+<dt>Curve rendering, including Bezier curves and splines</dt>
+<dd><p>Find out what these weird arrows on the curves of your favorite drawing program really are!</p>
+</dd>
+<dt>Computational photography</dt>
+<dd><p>How does the camera on your phone take such good pictures with almost no light?</p>
+</dd>
+<dt>Image segmentation</dt>
+<dd><p>Before you can “blur the background” of your video call, you need to determine which pixels are background and which aren’t.</p>
+</dd>
+</dl>
+<p>Congratulations again on taking your first step into the world of computer graphics. Now you get to choose where to go next!</p>
+<div class="cgfs-buy">
+Found this interesting? <br/> <b>Buy the book from <a href="https://nostarch.com/computer-graphics-scratch">No Starch Press</a> or <a href="https://www.amazon.com/Computer-Graphics-Scratch-Gabriel-Gambetta/dp/1718500769">Amazon</a>. </b>
+</div>
+<div class="centered">
+<b><a href="A0-linear-algebra.html">&lt;&lt; Linear Algebra</a></b>
+</div>
+<div class="cgfs_navbar">
+<b>Computer Graphics From Scratch</b> · <a href="dedication.html">Dedication</a> | <a href="acknowledgements.html">Acknowledgements</a> | <a href="index.html">Table of Contents</a> | <a href="00-introduction.html">Introduction</a> | <a href="01-common-concepts.html">Introductory Concepts</a><br/><b>Part I: Raytracing</b> · <a href="02-basic-raytracing.html">Basic Raytracing</a> | <a href="03-light.html">Light</a> | <a href="04-shadows-and-reflections.html">Shadows and Reflections</a> | <a href="05-extending-the-raytracer.html">Extending the Raytracer</a><br/><b>Part II: Rasterization</b> · <a href="06-lines.html">Lines</a> | <a href="07-filled-triangles.html">Filled Triangles</a> | <a href="08-shaded-triangles.html">Shaded Triangles</a> | <a href="09-perspective-projection.html">Perspective Projection</a> | <a href="10-describing-and-rendering-a-scene.html">Describing and Rendering a Scene</a> | <a href="11-clipping.html">Clipping</a> | <a href="12-hidden-surface-removal.html">Hidden Surface Removal</a> | <a href="13-shading.html">Shading</a> | <a href="14-textures.html">Textures</a> | <a href="15-extending-the-rasterizer.html">Extending the Rasterizer</a><br/><b>Appendixes</b> · <a href="A0-linear-algebra.html">Linear Algebra</a> | Afterword
+</div>
+<div class="signup" id="signup">
+</div>
+<script>$("#signup").load("/signup.php?m=cgfs&r=afterword");</script>
+</div>
+<div class="copyright">© Gabriel Gambetta 2026</div>
+</body>
+</html>

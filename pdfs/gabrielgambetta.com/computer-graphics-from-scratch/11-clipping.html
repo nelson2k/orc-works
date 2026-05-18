@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html class="cgfs" lang="en" xml:lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, user-scalable=yes" name="viewport"/>
+<title>Clipping - Computer Graphics from Scratch - Gabriel Gambetta</title>
+<style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+</style>
+<link href="../css/style.css" rel="stylesheet"/>
+<!--[if lt IE 9]>
+<script src="//cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv-printshiv.min.js"></script>
+<![endif]-->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.2/MathJax.js?config=TeX-AMS-MML_HTMLorMML" type="text/javascript"></script>
+<script src="../js/jquery-3.2.1.min.js"></script>
+<!-- Google tag (gtag.js) -->
+<script async="" src="https://www.googletagmanager.com/gtag/js?id=G-M38VSQ9GME"></script>
+<script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-M38VSQ9GME');
+</script>
+</head>
+<body>
+<div class="main">
+<div class="nav">
+<a href="index.html">&lt;&lt; Computer Graphics from Scratch</a> <a class="homelink" href="https://gabrielgambetta.com/index.html">Gabriel Gambetta</a>
+</div>
+<div style="clear:both;"></div>
+<h1 id="ch:clipping">Clipping</h1>
+<p>In the last few chapters, we developed equations and algorithms to transform a 3D definition of a scene into 2D shapes we can draw on the canvas; we developed a scene structure that lets us define 3D models and place instances of those models in the scene; and we developed an algorithm that lets us render the scene from any point of view.</p>
+<p>However, doing this exposes one of the limitations we’ve been working with: the perspective projection equations only work as expected for points that are in front of the camera. Since we can now move and rotate the camera around the scene, this poses a problem.</p>
+<p>In this chapter, we’ll develop the techniques necessary to lift this limitation: we’ll explore how to identify points, triangles, and entire objects that are behind the camera and develop techniques to deal with them.</p>
+<h2 id="an-overview-of-the-clipping-process"><a href="11-clipping.html#an-overview-of-the-clipping-process">An Overview of the Clipping Process</a></h2>
+<p>Back in <a href="09-perspective-projection.html">Chapter 9 (Perspective Projection)</a>, we arrived at the following equations:</p>
+<p><span class="math display">\[P\, '_x = {P_x \cdot d \over P_z}\]</span></p>
+<p><span class="math display">\[P\, '_y = {P_y \cdot d \over P_z}\]</span></p>
+<p>The division by <span class="math inline">\(P_z\)</span> is problematic; it can cause a division by zero. Moreover, points behind the camera have negative <span class="math inline">\(Z\)</span> values, which we currently can’t handle properly. Even points in front of the camera but very close to it will cause trouble in the form of severely distorted objects.</p>
+<p>To avoid these problematic cases, we’ll choose not to render anything behind the projection plane <span class="math inline">\(Z = d\)</span>. This <em>clipping plane</em> lets us classify any point as being <em>inside</em> or <em>outside</em> of the <em>clipping volume</em>—that is, the subset of space that is actually visible from the camera. In this case, the clipping volume is “whatever is in front of <span class="math inline">\(Z = d\)</span>.” We’ll only render the parts of the scene that are inside the clipping volume.</p>
+<h2 id="the-clipping-volume"><a href="11-clipping.html#the-clipping-volume">The Clipping Volume</a></h2>
+<p>Using a single clipping plane to make sure no objects behind the camera are rendered will produce correct results, but it’s not entirely efficient. Some objects may be in front of the camera but still not visible; for example, the projection of an object near the projection plane but far, far to the right will be projected outside of the viewport and therefore won’t be visible, as shown in Figure 11-1.</p>
+<figure>
+<img alt="Figure 11-1: An object that is in front of the projection plane,but will be projected outside of the viewport" id="fig:unclipped_object" src="images/r14-unclipped-object.png"/><figcaption aria-hidden="true">Figure 11-1: An object that is in front of the projection plane,but will be projected outside of the viewport</figcaption>
+</figure>
+<p>Any computational resources we use to project such an object, plus all the per-triangle and per-vertex computations done to render it, would be wasted. It would be more efficient to ignore these objects altogether.</p>
+<p>To do this, we can define additional planes to clip the scene to <em>exactly</em> what should be visible on the viewport; these planes are defined by the camera and each of the four sides of the viewport (Figure 11-2).</p>
+<figure>
+<img alt="Figure 11-2: The five planes that define our clipping volume" id="fig:clipping_planes" src="images/r14-clipping-planes.png"/><figcaption aria-hidden="true">Figure 11-2: The five planes that define our clipping volume</figcaption>
+</figure>
+<p>Each of the clipping planes splits space in two parts we call <em>half-spaces</em>. The “inside” half-space is everything that’s in front of the plane; the “outside” half-space is everything that’s behind it. The “inside” of the clipping volume we’re defining is the <em>intersection</em> of the “inside” half-spaces defined by each clipping plane. In this case, the clipping volume looks like an infinitely tall pyramid with the top chopped off.</p>
+<p>This means that to clip the scene against a clipping volume, we just need to clip it in succession against each of the planes that define the clipping volume. Whatever geometry remains inside after clipping against one plane is then clipped against the remaining planes. After the scene has been clipped against all the planes, the geometry that remains is the result of clipping the scene against the clipping volume.</p>
+<p>Next we’ll take a look at how to clip the scene against each clipping plane.</p>
+<h2 id="clipping-the-scene-against-a-plane"><a href="11-clipping.html#clipping-the-scene-against-a-plane">Clipping the Scene Against a Plane</a></h2>
+<p>Consider a scene with multiple objects, each made of four triangles (Figure 11-3).</p>
+<figure>
+<img alt="Figure 11-3: A scene with three objects" id="fig:scene_before_clipping" src="images/r14-clip1.png"/><figcaption aria-hidden="true">Figure 11-3: A scene with three objects</figcaption>
+</figure>
+<p>The fewer operations we execute, the faster our renderer will be. We will clip the scene against a clipping plane as a sequence of stages. Each stage will attempt to classify as much geometry as possible as either <em>accepted</em> or <em>discarded</em>, depending on whether it’s inside or outside the half-space defined by the clipping plane (that is, the clipping volume of this plane). Whatever geometry can’t be classified moves on to the next stage, which will take a more detailed look at it.</p>
+<p>The first stage attempts to classify entire objects at once. If an object is completely inside the clipping volume, it’s accepted (green in Figure 11-4); if it’s completely outside, it’s discarded (red in Figure 11-4).</p>
+<figure>
+<img alt="Figure 11-4: Clipping at the object level. Green is accepted, red is discarded, and gray requires further processing." id="fig:clip2" src="images/r14-clip2.png"/><figcaption aria-hidden="true">Figure 11-4: Clipping at the object level. Green is accepted, red is discarded, and gray requires further processing.</figcaption>
+</figure>
+<p>If an object can’t be fully accepted or discarded, we move on to the next stage and classify each of its triangles independently. If a triangle is completely inside the clipping volume, it’s accepted; if it’s completely outside, it’s discarded (see Figure 11-5).</p>
+<figure>
+<img alt="Figure 11-5: Clipping at the triangle level. Each triangle of the rightmost object is either accepted, discarded, or requires further processing." id="fig:clip3" src="images/r14-clip3.png"/><figcaption aria-hidden="true">Figure 11-5: Clipping at the triangle level. Each triangle of the rightmost object is either accepted, discarded, or requires further processing.</figcaption>
+</figure>
+<p>Finally, for each triangle that isn’t either accepted or discarded, we need to clip the triangle itself. The original triangle is removed, and either one or two new triangles are added to cover the part of the triangle that is inside the clipping volume (see Figure 11-6).</p>
+<figure>
+<img alt="Figure 11-6: Clipping at the vertex level. Each triangle that is partially inside the clipping volume is split into one or two triangles that are fully inside the clipping volume." id="fig:clip4" src="images/r14-clip4.png"/><figcaption aria-hidden="true">Figure 11-6: Clipping at the vertex level. Each triangle that is partially inside the clipping volume is split into one or two triangles that are fully inside the clipping volume.</figcaption>
+</figure>
+<p>Now that we have a clear conceptual understanding of how clipping works, we’ll develop the math and algorithms to create a working implementation.</p>
+<h2 id="defining-the-clipping-planes"><a href="11-clipping.html#defining-the-clipping-planes">Defining the Clipping Planes</a></h2>
+<p>Let’s start with the equation of the projection plane <span class="math inline">\(Z = d\)</span>, which we’ll use as a clipping plane. This equation is simple to visualize, but it’s not in the most convenient or general form for our purposes.</p>
+<p>The general equation for a 3D plane is <span class="math inline">\(Ax + By + Cz + D = 0\)</span>, meaning a point <span class="math inline">\(P = (x, y, z)\)</span> will satisfy that equation if and only if <span class="math inline">\(P\)</span> is on the plane. If we group the coefficients <span class="math inline">\((A, B, C)\)</span> in a vector <span class="math inline">\(\vec{N}\)</span>, we can rewrite the equation as <span class="math inline">\(\langle \vec{N}, P \rangle + D = 0\)</span>.</p>
+<p>Note that if <span class="math inline">\(\langle \vec{N}, P \rangle + D = 0\)</span>, then <span class="math inline">\(k\langle \vec{N}, P \rangle + kD = 0\)</span> for any value of <span class="math inline">\(k\)</span>. In particular, we can choose <span class="math inline">\(k = {1 / |\vec{N}|}\)</span>, multiply the original equation, and get a new equation <span class="math inline">\(\langle \vec{N}\, ', P \rangle + D\, ' = 0\)</span> where <span class="math inline">\(\vec{N}\, '\)</span> is a unit vector. So any given plane can be represented by an equation <span class="math inline">\(\langle \vec{N}, P \rangle + D = 0\)</span>, where <span class="math inline">\(\vec{N}\)</span> is a unit vector and <span class="math inline">\(D\)</span> is a real number.</p>
+<p>This is a very convenient formulation: <span class="math inline">\(\vec{N}\)</span> happens to be the normal of the plane and <span class="math inline">\(-D\)</span> is the <em>signed distance</em> from the origin to the plane. In fact, for any point <span class="math inline">\(P\)</span>, <span class="math inline">\(\langle \vec{N}, P \rangle + D\)</span> is the signed distance from the plane to <span class="math inline">\(P\)</span> ; <span class="math inline">\(distance = 0\)</span> is just the special case where <span class="math inline">\(P\)</span> is contained in the plane.</p>
+<p>If <span class="math inline">\(\vec{N}\)</span> is the normal of a plane, so is <span class="math inline">\(\vec{-N}\)</span>, so we choose <span class="math inline">\(\vec{N}\)</span> such that it points to “inside” the clipping volume. For the plane <span class="math inline">\(Z = d\)</span>, we choose the normal <span class="math inline">\((0, 0, 1)\)</span>, which points “forward” with respect to the camera. Since the point <span class="math inline">\((0, 0, d)\)</span> is contained in the plane, it must satisfy the plane equation, and we can solve for <span class="math inline">\(D\)</span>:</p>
+<p><span class="math display">\[\langle \vec{N}, P \rangle + D = \langle (0, 0, 1), (0, 0, d) \rangle + D = d + D = 0\]</span></p>
+<p>and from this we immediately get <span class="math inline">\(D = -d\)</span>.</p>
+<p>We could have gotten <span class="math inline">\(D = -d\)</span> directly from the original plane equation <span class="math inline">\(Z = d\)</span> by rewriting it as <span class="math inline">\(Z - d = 0\)</span>. However, we can apply this general method to derive the equations of the rest of the clipping planes.</p>
+<p>We know all these additional planes have <span class="math inline">\(D = 0\)</span> (because they all go through the origin), so all we need to do is determine their normals. To make the math simple, we’ll choose a <span class="math inline">\(90^\circ\)</span> field of view (FOV), meaning the planes are at <span class="math inline">\(45^\circ\)</span>.</p>
+<p>Consider the left clipping plane. The direction of its normal is <span class="math inline">\((1, 0, 1)\)</span> (that is, <span class="math inline">\(45^\circ\)</span> right and forward). The length of that vector is <span class="math inline">\(\sqrt{2}\)</span>, so if we normalize it we get <span class="math inline">\(({1 \over \sqrt{2}}, 0, {1 \over \sqrt{2}})\)</span>. Therefore the equation of the left clipping plane is</p>
+<p><span class="math display">\[\langle N, P \rangle + D = \langle ({1 \over \sqrt{2}}, 0, {1 \over \sqrt{2}}), P \rangle = 0\]</span></p>
+<p>Similarly, the normals for the right, bottom, and top clipping planes are <span class="math inline">\(({-1 \over \sqrt{2}}, 0, {1 \over \sqrt{2}})\)</span>, <span class="math inline">\((0, {1 \over \sqrt{2}}, {1 \over \sqrt{2}})\)</span>, and <span class="math inline">\((0, {-1 \over \sqrt{2}}, {1 \over \sqrt{2}})\)</span> respectively. Computing the clipping planes for any arbitrary FOV would involve just a little bit of trigonometry.</p>
+<p>In summary, our clipping volume is defined by the following five planes:</p>
+<p><span class="math display">\[(near) \langle (0, 0, 1), P \rangle - d = 0\]</span> <span class="math display">\[(left) \langle ({1 \over \sqrt{2}}, 0, {1 \over \sqrt{2}}), P \rangle = 0\]</span> <span class="math display">\[(right) \langle ({-1 \over \sqrt{2}}, 0, {1 \over \sqrt{2}}), P \rangle = 0\]</span> <span class="math display">\[(bottom) \langle (0, {1 \over \sqrt{2}}, {1 \over \sqrt{2}}), P \rangle = 0\]</span> <span class="math display">\[(top) \langle (0, {-1 \over \sqrt{2}}, {1 \over \sqrt{2}}), P \rangle = 0\]</span></p>
+<p>Let’s now take a detailed look at how to clip geometry against a plane.</p>
+<h2 id="clipping-whole-objects"><a href="11-clipping.html#clipping-whole-objects">Clipping Whole Objects</a></h2>
+<p>Suppose we put each model inside the smallest sphere that can contain it; we call that sphere the <em>bounding sphere</em> of the object. Computing this sphere is surprisingly more difficult than it seems, and it falls outside the scope of this book. But a rough approximation can be obtained by first computing the center of the sphere by averaging the coordinates of all the vertices in the model, and then defining the radius to be the distance from the center to the vertex that it’s farthest away from.</p>
+<p>In any case, let’s assume we know the center <span class="math inline">\(C\)</span> and the radius <span class="math inline">\(r\)</span> of a sphere that completely contains each model. Figure 11-7 shows a scene with a few objects and their bounding spheres.</p>
+<figure>
+<img alt="Figure 11-7: A scene with a few objects and their bounding spheres" id="fig:clip_spheres_1" src="images/r14-clip-spheres-1.png"/><figcaption aria-hidden="true">Figure 11-7: A scene with a few objects and their bounding spheres</figcaption>
+</figure>
+<p>We can categorize the spatial relationship between this sphere and a plane as follows:</p>
+<dl>
+<dt>The sphere is completely in front of the plane.</dt>
+<dd><p>In this case, the entire object is accepted; no further clipping is necessary against this plane (but it may still be clipped by a different plane). See Figure 11-8 for an example.</p>
+</dd>
+</dl>
+<figure>
+<img alt="Figure 11-8: The green object is accepted." id="fig:clip_spheres_2" src="images/r14-clip-spheres-2.png"/><figcaption aria-hidden="true">Figure 11-8: The green object is accepted.</figcaption>
+</figure>
+<dl>
+<dt>The sphere is completely behind the plane.</dt>
+<dd><p>In this case, the entire object is discarded; no further clipping is necessary (no matter what the other planes are, no part of the object will ever be inside the clipping volume). See Figure 11-9 for an example.</p>
+</dd>
+</dl>
+<figure>
+<img alt="Figure 11-9: The red object is discarded." id="fig:clip_spheres_3" src="images/r14-clip-spheres-3.png"/><figcaption aria-hidden="true">Figure 11-9: The red object is discarded.</figcaption>
+</figure>
+<dl>
+<dt>The plane intersects the sphere.</dt>
+<dd><p>This doesn’t give us enough information to know whether any part of the object is inside the clipping volume; it may be completely inside, completely outside, or partially inside. It is necessary to proceed to the next step and clip the model triangle by triangle. See Figure 11-10 for an example.</p>
+</dd>
+</dl>
+<figure>
+<img alt="Figure 11-10: The gray objects can’t be fully accepted or discarded." id="fig:clip_spheres_4" src="images/r14-clip-spheres-4.png"/><figcaption aria-hidden="true">Figure 11-10: The gray objects can’t be fully accepted or discarded.</figcaption>
+</figure>
+<p>How does this categorization actually work? The way we’ve chosen to express the clipping planes is such that plugging any point into the plane equation gives us the signed distance from the point to the plane; in particular, we can compute the signed distance <span class="math inline">\(d\)</span> from the center of the bounding sphere to the plane. So if <span class="math inline">\(d &gt; r\)</span>, the sphere is in front of the plane; if <span class="math inline">\(d &lt; -r\)</span>, the sphere is behind the plane; otherwise <span class="math inline">\(|d| &lt; r\)</span>, which means the plane intersects the sphere. Figure 11-11 illustrates all three cases.</p>
+<figure>
+<img alt="Figure 11-11: The signed distance from the center of a sphere to a clipping plane tells us whether the sphere is in front of the plane, behind the plane, or intersects the plane." id="fig:clip_plane_sphere" src="images/r14-clip-plane-sphere.png"/><figcaption aria-hidden="true">Figure 11-11: The signed distance from the center of a sphere to a clipping plane tells us whether the sphere is in front of the plane, behind the plane, or intersects the plane.</figcaption>
+</figure>
+<h2 id="clipping-triangles"><a href="11-clipping.html#clipping-triangles">Clipping Triangles</a></h2>
+<p>If the sphere–plane test isn’t enough to determine whether an object is fully in front or fully behind the clipping plane, we have to clip each triangle against it.</p>
+<p>We can classify each vertex of the triangle against the clipping plane by looking at its signed distance to the plane. If the distance is zero or positive, the vertex is in front of the clipping plane; otherwise, it’s behind. Figure 11-12 illustrates this idea.</p>
+<figure>
+<img alt="Figure 11-12: The signed distance from a vertex to a clipping plane tells us whether the vertex is in front of or behind the plane." id="fig:vertex_classification" src="images/r14-vertex-classification.png"/><figcaption aria-hidden="true">Figure 11-12: The signed distance from a vertex to a clipping plane tells us whether the vertex is in front of or behind the plane.</figcaption>
+</figure>
+<p>For each triangle, there are four possible classifications:</p>
+<dl>
+<dt>Three vertices in front.</dt>
+<dd><p>In this case, the whole triangle is in front of the clipping plane, so we accept it and no further clipping against this plane is needed.</p>
+</dd>
+<dt>Three vertices behind.</dt>
+<dd><p>In this case, the whole triangle is behind the clipping plane, so we discard it and no further clipping is necessary at all.</p>
+</dd>
+<dt>One vertex in front.</dt>
+<dd><p>Let <span class="math inline">\(A\)</span> be the vertex of the triangle <span class="math inline">\(ABC\)</span> that is in front of the plane. In this case, we discard <span class="math inline">\(ABC\)</span>, and add a new triangle <span class="math inline">\(AB\, 'C\, '\)</span>, where <span class="math inline">\(B\, '\)</span> and <span class="math inline">\(C\, '\)</span> are the intersections of <span class="math inline">\(AB\)</span> and <span class="math inline">\(AC\)</span> with the clipping plane (Figure 11-13).</p>
+</dd>
+</dl>
+<!-- -->
+<dl>
+<dt>Two vertices in front.</dt>
+<dd><p>Let <span class="math inline">\(A\)</span> and <span class="math inline">\(B\)</span> be the vertices of the triangle <span class="math inline">\(ABC\)</span> that are in front of the plane. In this case, we discard ABC and add two new triangles: <span class="math inline">\(ABA\, '\)</span> and <span class="math inline">\(A\, 'BB\, '\)</span>, where <span class="math inline">\(A\, '\)</span> and <span class="math inline">\(B\, '\)</span> are the intersections of <span class="math inline">\(AC\)</span> and <span class="math inline">\(BC\)</span> with the clipping plane (Figure 11-14).</p>
+</dd>
+</dl>
+<figure>
+<img alt="Figure 11-13: A triangle ABC with one vertex inside and two vertices outside the clipping volume is replaced by a single triangle AB’C’." id="fig:clip_triangle_1_inside" src="images/r14-clip-triangle1.png"/><figcaption aria-hidden="true">Figure 11-13: A triangle <em>ABC</em> with one vertex inside and two vertices outside the clipping volume is replaced by a single triangle <em>AB’C’</em>.</figcaption>
+</figure>
+<figure>
+<img alt="Figure 11-14: A triangle ABC with one vertex outside and two vertices inside the clipping volume is replaced by two triangles ABA’ and A’BB’." id="fig:clip_triangle2" src="images/r14-clip-triangle2.png"/><figcaption aria-hidden="true">Figure 11-14: A triangle <em>ABC</em> with one vertex outside and two vertices inside the clipping volume is replaced by two triangles <em>ABA’</em> and <em>A’BB’</em>.</figcaption>
+</figure>
+<h3 id="segment-plane-intersection"><a href="11-clipping.html#segment-plane-intersection">Segment-Plane Intersection</a></h3>
+<p>To clip triangles as discussed above, we need to compute the intersection of the sides of the triangle with the clipping plane.</p>
+<p>We have a clipping plane given by the equation <span class="math inline">\(\langle N, P \rangle + D = 0\)</span>. The triangle side <span class="math inline">\(AB\)</span> can be expressed with a parametric equation as <span class="math inline">\(P = A + t(B - A)\)</span> for <span class="math inline">\(0 \le t \le 1\)</span>. To compute the value of the parameter <span class="math inline">\(t\)</span> where the intersection occurs, we replace <span class="math inline">\(P\)</span> in the plane equation with the parametric equation of the segment:</p>
+<p><span class="math display">\[\langle N, P \rangle + D = 0\]</span> <span class="math display">\[P = A + t(B - A)\]</span> <span class="math display">\[\implies {\langle N, A + t(B - A) \rangle + D = 0}\]</span></p>
+<p>Using the linear properties of the dot product:</p>
+<p><span class="math display">\[\langle N, A \rangle + t\langle N, B - A \rangle + D = 0\]</span></p>
+<p>Solving for <span class="math inline">\(t\)</span>:</p>
+<p><span class="math display">\[t = {-D - \langle N, A \rangle \over \langle N, B - A \rangle}\]</span></p>
+<p>We know a solution always exists because we know <span class="math inline">\(AB\)</span> intersects the plane; mathematically, <span class="math inline">\(\langle N, B - A \rangle\)</span> can’t be zero because that would imply that the segment and the normal are perpendicular, which in turn would imply that the segment and the plane don’t intersect.</p>
+<p>Having computed <span class="math inline">\(t\)</span>, the intersection <span class="math inline">\(Q\)</span> is simply</p>
+<p><span class="math display">\[Q = A + t(B - A)\]</span></p>
+<p>Note that if the original vertices carry additional attributes (for example, the <span class="math inline">\(h\)</span> intensity value we were using in <a href="07-filled-triangles.html">Chapter 7 (Filled Triangles)</a>), we need to compute the values of these attributes for the new vertices.</p>
+<p>In the equation above, <span class="math inline">\(t\)</span> is the fraction of the segment <span class="math inline">\(AB\)</span> where the intersection occurs. Let <span class="math inline">\(\alpha_A\)</span> and <span class="math inline">\(\alpha_B\)</span> be the values of some attribute <span class="math inline">\(\alpha\)</span> at the points <span class="math inline">\(A\)</span> and <span class="math inline">\(B\)</span>; if we assume the attribute varies linearly across <span class="math inline">\(AB\)</span>, then <span class="math inline">\(\alpha_Q\)</span> can be computed as</p>
+<p><span class="math display">\[\alpha_Q = \alpha_A + t(\alpha_B - \alpha_A)\]</span></p>
+<p>We now have all the algorithms and equations to implement our clipping pipeline.</p>
+<h2 id="clipping-pseudocode"><a href="11-clipping.html#clipping-pseudocode">Clipping Pseudocode</a></h2>
+<p>Let’s write some high-level pseudocode for the clipping pipeline. We’ll follow the top-down approach we developed before.</p>
+<p>To clip a scene, we clip each of its instances (Listing 11-1).</p>
+<pre data-caption="Listing 11-1: An algorithm to clip a scene against a set of clipping planes" data-label="lst:clip_scene">ClipScene(scene, planes) {
+    clipped_instances = []
+    for I in scene.instances {
+        clipped_instance = ClipInstance(I, planes)
+        if clipped_instance != NULL {
+            clipped_instances.append(clipped_instance)
+        }
+    }
+    clipped_scene = Copy(scene)
+    clipped_scene.instances = clipped_instances
+    return clipped_scene
+}</pre><figcaption class="code_caption">Listing 11-1: An algorithm to clip a scene against a set of clipping planes</figcaption>
+<p>To clip an instance, we either accept it, reject it, or clip each of its triangles, depending on its bounding sphere (Listing 11-2).</p>
+<pre data-caption="Listing 11-2: An algorithm to clip an instance against a set of clipping planes" data-label="lst:clip_instance">ClipInstance(instance, planes) {
+    for plane in planes {
+        instance = ClipInstanceAgainstPlane(instance, plane)
+        if instance == NULL {
+            return NULL
+        }
+    }
+    return instance
+}
+
+ClipInstanceAgainstPlane(instance, plane) {
+    d = SignedDistance(plane, instance.bounding_sphere.center)
+    r = instance.bounding_sphere.radius
+    if d &gt; r {
+        return instance
+    } else if d &lt; -r {
+        return NULL
+    } else {
+        clipped_instance = Copy(instance)
+        clipped_instance.triangles =
+            ClipTrianglesAgainstPlane(instance.triangles, plane)
+
+        return clipped_instance
+    }
+}</pre><figcaption class="code_caption">Listing 11-2: An algorithm to clip an instance against a set of clipping planes</figcaption>
+<p>Finally, to clip a triangle, we either accept it, reject it, or decompose it into up to two triangles, depending on how many of its vertices are in front of the clipping plane (Listing 11-3).</p>
+<pre data-caption="Listing 11-3: An algorithm to clip a set of triangles against a clipping plane" data-label="lst:clip_triangles">ClipTrianglesAgainstPlane(triangles, plane) {
+    clipped_triangles = []
+    for T in triangles {
+        clipped_triangles.append(ClipTriangle(T, plane))
+    }
+    return clipped_triangles
+}
+
+ClipTriangle(triangle, plane) {
+    d0 = SignedDistance(plane, triangle.v0)
+    d1 = SignedDistance(plane, triangle.v1)
+    d2 = SignedDistance(plane, triangle.v2)
+
+    if {d0, d1, d2} are all positive {
+        return [triangle]
+    } else if {d0, d1, d2} are all negative {
+        return []
+    } else if only one of {d0, d1, d2} is positive {
+        let A be the vertex with a positive distance
+        compute B' = Intersection(AB, plane)
+        compute C' = Intersection(AC, plane)
+        return [Triangle(A, B', C')]
+    } else /* only one of {d0, d1, d2} is negative */ {
+        let C be the vertex with a negative distance
+        compute A' = Intersection(AC, plane)
+        compute B' = Intersection(BC, plane)
+        return [Triangle(A, B, A'), Triangle(A', B, B')]
+    }
+}</pre><figcaption class="code_caption">Listing 11-3: An algorithm to clip a set of triangles against a clipping plane</figcaption>
+<p>The helper function <code>SignedDistance</code> just plugs the coordinates of a point into the equation of a plane (Listing 11-4).</p>
+<pre data-caption="Listing 11-4: A function to compute the signed distance from a plane to a point" data-label="lst:signed_distance">SignedDistance(plane, vertex) {
+    normal = plane.normal
+    return (vertex.x * normal.x)
+         + (vertex.y * normal.y)
+         + (vertex.z * normal.z)
+         + plane.D
+}</pre><figcaption class="code_caption">Listing 11-4: A function to compute the signed distance from a plane to a point</figcaption>
+<p><a class="cgfs_demo" href="https://gabrielgambetta.com/cgfs/clipping-demo">Source code and live demo &gt;&gt;</a></p>
+<h2 id="clipping-in-the-pipeline"><a href="11-clipping.html#clipping-in-the-pipeline">Clipping in the Rendering Pipeline</a></h2>
+<p>The order of the chapters in the book is not the order of operations in the rendering pipeline; as explained in the introduction, the chapters are ordered in such a way that visible progress is reached as quickly as possible.</p>
+<p>Clipping is a 3D operation; it takes 3D objects in the scene and generates a new set of 3D objects in the scene or, more precisely, it computes the intersection of the scene and the clipping volume. For this reason, clipping must happen after objects have been placed in the scene (that is, using the vertices after the model and camera transforms) but before perspective projection.</p>
+<p>The techniques presented in this chapter work reliably, but are very generic. The more prior knowledge you have about your scene, the more efficient your clipping can be. For example, many games pre-process their levels by adding visibility information to them; if you can divide a scene into “rooms,” you can make a table listing what rooms are visible from any given room. When rendering the scene later, you just need to figure out what room the camera is in, and you can safely ignore all the rooms marked as “non-visible” from there, saving considerable resources during rendering. The trade-off is, of course, more pre-processing time and a more rigid scene. If you’re interested in this topic, read about BSP partitioning and portal systems.</p>
+<h2 id="summary"><a href="11-clipping.html#summary">Summary</a></h2>
+<p>In this chapter, we finally lifted one of the main limitations caused by the perspective projection equation. We’ve overcome the limitation that only vertices in front of the camera can be meaningfully projected. In order to do this, we came up with a precise definition of what “being in front of the camera” means: whatever is inside a clipping volume we define with five planes.</p>
+<p>Then we developed the equations and algorithms to compute the geometrical intersection between the scene and the clipping volume. As a consequence, we can take an entire scene and remove everything that can’t possibly be projected onto the viewport. This not only avoids the cases that can’t be handled by the perspective projection equations, it also saves computation resources by removing geometry that would be projected outside of the viewport.</p>
+<p>However, after clipping a scene, we might still end up with geometry that <em>could</em> be visible in the final canvas, but which <em>will not</em>, most likely because there’s something else in front of it! We’ll find ways to deal with this in the next chapter.</p>
+<div class="cgfs-buy">
+Found this interesting? <br/> <b>Buy the book from <a href="https://nostarch.com/computer-graphics-scratch">No Starch Press</a> or <a href="https://www.amazon.com/Computer-Graphics-Scratch-Gabriel-Gambetta/dp/1718500769">Amazon</a>. </b>
+</div>
+<div class="centered">
+<b><a href="10-describing-and-rendering-a-scene.html">&lt;&lt; Describing and Rendering a Scene</a> | <a href="12-hidden-surface-removal.html">Hidden Surface Removal &gt;&gt;</a></b>
+</div>
+<div class="cgfs_navbar">
+<b>Computer Graphics From Scratch</b> · <a href="dedication.html">Dedication</a> | <a href="acknowledgements.html">Acknowledgements</a> | <a href="index.html">Table of Contents</a> | <a href="00-introduction.html">Introduction</a> | <a href="01-common-concepts.html">Introductory Concepts</a><br/><b>Part I: Raytracing</b> · <a href="02-basic-raytracing.html">Basic Raytracing</a> | <a href="03-light.html">Light</a> | <a href="04-shadows-and-reflections.html">Shadows and Reflections</a> | <a href="05-extending-the-raytracer.html">Extending the Raytracer</a><br/><b>Part II: Rasterization</b> · <a href="06-lines.html">Lines</a> | <a href="07-filled-triangles.html">Filled Triangles</a> | <a href="08-shaded-triangles.html">Shaded Triangles</a> | <a href="09-perspective-projection.html">Perspective Projection</a> | <a href="10-describing-and-rendering-a-scene.html">Describing and Rendering a Scene</a> | Clipping | <a href="12-hidden-surface-removal.html">Hidden Surface Removal</a> | <a href="13-shading.html">Shading</a> | <a href="14-textures.html">Textures</a> | <a href="15-extending-the-rasterizer.html">Extending the Rasterizer</a><br/><b>Appendixes</b> · <a href="A0-linear-algebra.html">Linear Algebra</a> | <a href="afterword.html">Afterword</a>
+</div>
+<div class="signup" id="signup">
+</div>
+<script>$("#signup").load("/signup.php?m=cgfs&r=11-clipping");</script>
+</div>
+<div class="copyright">© Gabriel Gambetta 2026</div>
+</body>
+</html>

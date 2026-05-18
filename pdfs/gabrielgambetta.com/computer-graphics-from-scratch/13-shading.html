@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html class="cgfs" lang="en" xml:lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, user-scalable=yes" name="viewport"/>
+<title>Shading - Computer Graphics from Scratch - Gabriel Gambetta</title>
+<style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+</style>
+<link href="../css/style.css" rel="stylesheet"/>
+<!--[if lt IE 9]>
+<script src="//cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv-printshiv.min.js"></script>
+<![endif]-->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.2/MathJax.js?config=TeX-AMS-MML_HTMLorMML" type="text/javascript"></script>
+<script src="../js/jquery-3.2.1.min.js"></script>
+<!-- Google tag (gtag.js) -->
+<script async="" src="https://www.googletagmanager.com/gtag/js?id=G-M38VSQ9GME"></script>
+<script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-M38VSQ9GME');
+</script>
+</head>
+<body>
+<div class="main">
+<div class="nav">
+<a href="index.html">&lt;&lt; Computer Graphics from Scratch</a> <a class="homelink" href="https://gabrielgambetta.com/index.html">Gabriel Gambetta</a>
+</div>
+<div style="clear:both;"></div>
+<h1 id="ch:shading">Shading</h1>
+<p>Let’s continue making our images more realistic; in this chapter, we’ll examine how to add lights to the scene and how to illuminate the objects it contains. First, let’s look at a bit of terminology.</p>
+<h2 id="shading-vs.-illumination"><a href="13-shading.html#shading-vs.-illumination">Shading vs. Illumination</a></h2>
+<p>The title of this chapter is “Shading," not”Illumination"; these are two different but closely related concepts. <em>Illumination</em> refers to the math and algorithms necessary to compute the effect of light on a single point in the scene; <em>shading</em> deals with techniques that extend the effect of light on a discrete set of points to entire objects.</p>
+<p>In <a href="03-light.html">Chapter 3 (Light)</a>, we looked at all we need to know about illumination. We can define ambient, point, and directional lights, and we can compute the</p>
+<p>illumination at any point in the scene given its position and a surface normal at that point:</p>
+<p><span class="math display">\[I_P = I_A + \sum_{i = 1}^{n} I_i \cdot \left[ {{{\langle \vec{N}, \vec{L_i} \rangle} \over {|\vec{N}||\vec{L_i}|}} + \left( {{\langle \vec{R_i}, \vec{V} \rangle} \over {|\vec{R_i}||\vec{V}|}} \right)^s} \right]\]</span></p>
+<p>This illumination equation expresses how light illuminates a point in the scene. The way this worked in our raytracer is exactly the same way it works in our rasterizer.</p>
+<p>The more interesting part, which we’ll explore in this chapter, is how to extend the “illumination at a point” algorithms we developed into “illumination at every point of a triangle” algorithms.</p>
+<h2 id="flat-shading"><a href="13-shading.html#flat-shading">Flat Shading</a></h2>
+<p>Let’s start simple. Since we can compute illumination at a point, we can just pick any point in a triangle (for example, its center), compute the illumination at that point, and use it to shade the whole triangle. To do the actual shading, we can multiply the color of the triangle by the illumination value. Figure 13-1 shows the results.</p>
+<figure>
+<img alt="Figure 13-1: In flat shading, we compute illumination at the center of the triangle and use it for the entire triangle." id="fig:raster_11" src="images/raster-11.png"/><figcaption aria-hidden="true">Figure 13-1: In flat shading, we compute illumination at the center of the triangle and use it for the entire triangle.</figcaption>
+</figure>
+<p>The results are promising. Every point in a triangle has the same normal, so as long as a light is reasonably far from it, the light vectors for every point are <em>approximately</em> parallel and every point receives <em>approximately</em> the same amount of light. The discontinuity between the two triangles that make up each side of the cube, especially visible on the green face in Figure 13-1, is a consequence of the light vectors being <em>approximately</em>, but not <em>exactly</em>, parallel.</p>
+<p>So what happens if we try this technique with an object for which every point has a different normal, like the sphere in Figure 13-2?</p>
+<figure>
+<img alt="Figure 13-2: Flat shading works reasonably well for objects with flat faces, but not so well for objects that are supposed to be curved." id="fig:raster_11b" src="images/raster-11b.png"/><figcaption aria-hidden="true">Figure 13-2: Flat shading works reasonably well for objects with flat faces, but not so well for objects that are supposed to be curved.</figcaption>
+</figure>
+<p>Not so good. It is very obvious that the object is not a true sphere, but an approximation made out of flat, triangular patches. Because this kind of illumination makes curved objects look flat, it’s called <em>flat shading</em>.</p>
+<h2 id="gouraud-shading"><a href="13-shading.html#gouraud-shading">Gouraud Shading</a></h2>
+<p>How can we remove these discontinuities in lighting? Instead of computing illumination only at the center of a triangle, we can compute illumination at its three vertices. This gives us three illumination values between <span class="math inline">\(0.0\)</span> and <span class="math inline">\(1.0\)</span>, one for each vertex of the triangle. This puts us in exactly the same situation as <a href="08-shaded-triangles.html">Chapter 8 (Shaded Triangles)</a>: we can use <code>DrawShadedTriangle</code> directly, using the illumination values as the “intensity” attribute.</p>
+<p>This technique is called <em>Gouraud shading</em>, after Henri Gouraud, who came up with the idea in 1971. Figure 13-3 shows the results of applying it to the cube and the sphere.</p>
+<figure>
+<img alt="Figure 13-3: In Gouraud shading, we compute illumination at the vertices of the triangle and interpolate them across its surface." id="fig:raster_11c" src="images/raster-11c.png"/><figcaption aria-hidden="true">Figure 13-3: In Gouraud shading, we compute illumination at the vertices of the triangle and interpolate them across its surface.</figcaption>
+</figure>
+<p>The cube looks better: the discontinuity is gone, because both triangles of each face share two vertices and they have the same normal, so the illumination at these two vertices is identical for both triangles.</p>
+<p>The sphere, however, still looks faceted, and the discontinuities on its surface look really wrong. This shouldn’t be surprising: we’re treating the sphere as a collection of flat surfaces. In particular, despite every triangle sharing vertices with its neighboring triangles, they have different normals. Figure 13-4 shows the problem.</p>
+<figure>
+<img alt="Figure 13-4: We get two different values for the illumination at the shared vertex, because they depend on the normals of the triangles, which are different." id="fig:flat_normals" src="images/r16-flat-normals.png"/><figcaption aria-hidden="true">Figure 13-4: We get two different values for the illumination at the shared vertex, because they depend on the normals of the triangles, which are different.</figcaption>
+</figure>
+<p>Let’s take a step back. The fact that we’re using flat triangles to represent a curved object is a limitation of our techniques, not a property of the object itself.</p>
+<p>Each vertex in the sphere model corresponds to a point on the sphere, but the triangles they define are just an approximation of its surface. It would be a good idea to make the vertices in the model represent the points in the sphere as closely as possible. That means, among other things, using the actual sphere normals for each vertex, as shown in Figure 13-5.</p>
+<figure>
+<img alt="Figure 13-5: We can give each vertex the normal of the curved surface it represents." id="fig:sphere_normals" src="images/r16-sphere-normals.png"/><figcaption aria-hidden="true">Figure 13-5: We can give each vertex the normal of the curved surface it represents.</figcaption>
+</figure>
+<p>Note that this doesn’t apply to the cube; even though triangles share vertex positions, each face needs to be shaded independently of the others. There’s no single “correct” normal for the vertices of a cube.</p>
+<p>Our renderer has no way to know whether a model is supposed to be an approximation of a curved object or the exact representation of a flat one. After all, a cube is a very crude approximation of a sphere! To solve this, we’ll make the triangle normals part of the model, so its designer can make this decision.</p>
+<p>Some objects, like the sphere, have a single normal per vertex. Other objects, like the cube, have a different normal for each triangle that uses the vertex. So we can’t make the normals a property of the vertices; they need to be a property of the triangles that use them:</p>
+<pre>model {
+    name = cube
+    vertices {
+        0 = (-1, -1, -1)
+        1 = (-1, -1,  1)
+        2 = (-1,  1,  1)
+        ...
+    }
+    triangles {
+        0 = {
+            vertices = [0, 1, 2]
+            normals = [(-1, 0, 0), (-1, 0, 0), (-1, 0, 0)]
+        }
+        ...
+    }
+}</pre>
+<p>Figure 13-6 shows the scene rendered using Gouraud shading and the appropriate vertex normals.</p>
+<figure>
+<img alt="Figure 13-6: Gouraud shading with normal vectors specified in the model. The cubes still look like cubes, and the sphere now looks like a sphere." id="fig:raster_11d" src="images/raster-11d.png"/><figcaption aria-hidden="true">Figure 13-6: Gouraud shading with normal vectors specified in the model. The cubes still look like cubes, and the sphere now looks like a sphere.</figcaption>
+</figure>
+<p>The cubes still look like cubes, and the sphere now looks remarkably like a sphere. In fact, you can only tell it’s made out of triangles by looking at its outline. This could be improved by using more, smaller triangles, at the expense of requiring more computing power.</p>
+<p>Gouraud shading starts breaking down when we try to render shiny objects, though; the specular highlight on the sphere is decidedly unrealistic.</p>
+<p>This is an indication of a more general problem. When we move a point light very close to a big face, we’d naturally expect it to look brighter and the specular effects to become more pronounced; however, Gouraud shading produces the exact opposite (Figure 13-7).</p>
+<figure>
+<img alt="Figure 13-7: Contrary to our expectations, the closer the point light is to a face, the darker it looks." id="fig:gourad_sequence" src="images/r16-gouraud-sequence.png"/><figcaption aria-hidden="true">Figure 13-7: Contrary to our expectations, the closer the point light is to a face, the darker it looks.</figcaption>
+</figure>
+<p>We expect points near the center of the triangle to receive a lot of light, because <span class="math inline">\(\vec{L}\)</span> and <span class="math inline">\(\vec{N}\)</span> are roughly parallel. However, we’re not computing lighting at the center of the triangle, but at its vertices. There, the closer the light is to the surface, the <em>bigger</em> the angle with the normal, so they receive little illumination. This means that every interior pixel will end up with an intensity value that is the result of interpolating between two small values, which is also a low value, as shown in Figure 13-8.</p>
+<figure>
+<img alt="Figure 13-8: Interpolating illumination from the vertices, which are dark, results in a dark center, although the normal is parallel to the light vector at that point." id="fig:wrong_interpolation" src="images/r16-wrong-interpolation.png"/><figcaption aria-hidden="true">Figure 13-8: Interpolating illumination from the vertices, which are dark, results in a dark center, although the normal is parallel to the light vector at that point.</figcaption>
+</figure>
+<p>So, what to do?</p>
+<h2 id="phong-shading"><a href="13-shading.html#phong-shading">Phong Shading</a></h2>
+<p>We can overcome the limitations of Gouraud shading, but as usual, there’s a trade-off between quality and resource usage.</p>
+<p>Flat shading involved a single illumination calculation per triangle. Gouraud shading requires three illumination calculations per triangle, plus the interpolation of a single attribute, the illumination, across the triangle. The next step in quality requires us to calculate illumination at every pixel of the triangle.</p>
+<p>This doesn’t sound particularly complex from a theoretical point of view; we’re computing lighting at one or three points already, and we were computing per-pixel lighting for the raytracer after all. What’s tricky here is figuring out where the inputs to the illumination equation come from. Recall that the full illumination equation, with ambient, diffuse, and specular components, is:</p>
+<p><span class="math display">\[I_P = I_A + \sum_{i = 1}^{n} I_i \left({{\langle \vec{N}, \vec{L_i} \rangle} \over {|\vec{N}||\vec{L_i}|}} + \left( {{\langle \vec{R}, \vec{V} \rangle} \over {|\vec{R}||\vec{V}|}} \right)^s\right)\]</span></p>
+<p>First, we need <span class="math inline">\(\vec{L}\)</span>. For directional lights, <span class="math inline">\(\vec{L}\)</span> is given. For point lights, <span class="math inline">\(\vec{L}\)</span> is defined as the vector from the point in the scene, <span class="math inline">\(P\)</span>, to the position of the light, <span class="math inline">\(Q\)</span>. However, we don’t have <span class="math inline">\(P\)</span> for every pixel of the triangle, but only for the vertices.</p>
+<p>What we do have is the projection of <span class="math inline">\(P\)</span>; that is, the <span class="math inline">\(x'\)</span> and <span class="math inline">\(y'\)</span> we’re about to draw on the canvas! We know that</p>
+<p><span class="math display">\[x' = {xd \over z}\]</span></p>
+<p><span class="math display">\[y' = {yd \over z}\]</span></p>
+<p>We also happen to have an interpolated but geometrically correct value for <span class="math inline">\(1 \over z\)</span> as part of the depth-buffering algorithm, so</p>
+<p><span class="math display">\[x' = xd{1 \over z}\]</span></p>
+<p><span class="math display">\[y' = yd{1 \over z}\]</span></p>
+<p>We can recover <span class="math inline">\(P\)</span> from these values:</p>
+<p><span class="math display">\[x = {x' \over d{1 \over z}}\]</span></p>
+<p><span class="math display">\[y = {y' \over d{1 \over z}}\]</span></p>
+<p><span class="math display">\[z = {1 \over {1 \over z}}\]</span></p>
+<p>We also need <span class="math inline">\(\vec{V}\)</span>. This is the vector from the camera (which we know) to <span class="math inline">\(P\)</span> (which we just computed), so <span class="math inline">\(\vec{V}\)</span> is simply <span class="math inline">\(P - C\)</span>.</p>
+<p>Next, we need <span class="math inline">\(\vec{N}\)</span>. We only know the normals at the vertices of the triangle. When all you have is a hammer, every problem looks like a nail; our hammer is—you probably guessed it—linear interpolation of attribute values. So let’s take the values of <span class="math inline">\(N_x\)</span>, <span class="math inline">\(N_y\)</span>, and <span class="math inline">\(N_z\)</span> at each vertex and treat each of them as an attribute we can linearly interpolate. Then, at every pixel, we reassemble the interpolated components into a vector, normalize it, and use it as the normal at that pixel.</p>
+<p>This technique is called <em>Phong shading</em>, after Bui Tuong Phong, who invented it in 1973. Figure 13-9 shows the results.</p>
+<figure>
+<img alt="Figure 13-9: Phong shading. The surface of the sphere looks smooth and the specular highlight is clearly visible." id="fig:raster_11e" src="images/raster-11e.png"/><figcaption aria-hidden="true">Figure 13-9: Phong shading. The surface of the sphere looks smooth and the specular highlight is clearly visible.</figcaption>
+</figure>
+<p><a class="cgfs_demo" href="https://gabrielgambetta.com/cgfs/shading-demo">Source code and live demo &gt;&gt;</a></p>
+<p>The sphere looks much better now. Its surface displays the proper curvature, and the specular highlights look well defined. The contour, however, still betrays the fact that we’re rendering an approximation made of triangles. This is not a shortcoming of the shading algorithm, which only determines the color of each pixel of the surface of the triangles but has no control over the shape of the triangles themselves. This sphere approximation uses 420 triangles; we could get a smoother contour by using more triangles, at the cost of worse performance.</p>
+<p>Phong shading also solves the problem with the light getting close to a face, now giving the expected results (Figure 13-10).</p>
+<figure>
+<img alt="Figure 13-10: The closer the light is to the surface, the brighter and better defined the specular highlight looks." id="fig:close_light_phong" src="images/r16-phong-sequence.png"/><figcaption aria-hidden="true">Figure 13-10: The closer the light is to the surface, the brighter and better defined the specular highlight looks.</figcaption>
+</figure>
+<p>At this point, we’ve matched the capabilities of the raytracer developed in Part I, except for shadows and reflections. Using the exact same scene definition, Figure 13-11 shows the output of the rasterizer we’re developing.</p>
+<figure>
+<img alt="Figure 13-11: The reference scene, rendered by the rasterizer" id="fig:raster_rt" src="images/raster-rt.png"/><figcaption aria-hidden="true">Figure 13-11: The reference scene, rendered by the rasterizer</figcaption>
+</figure>
+<p>For reference, Figure 13-12 shows the raytraced version of the same scene.</p>
+<figure>
+<img alt="Figure 13-12: The reference scene, rendered by the raytracer" id="fig:raytracer_03_2" src="images/raytracer-03.png"/><figcaption aria-hidden="true">Figure 13-12: The reference scene, rendered by the raytracer</figcaption>
+</figure>
+<p>The two versions look almost identical, despite using vastly different techniques. This is expected, since the scene definition is identical. The only visible difference can be found in the contour of the spheres: the raytracer renders them as mathematically perfect objects, but we use an approximation made of triangles for the rasterizer.</p>
+<p>Another difference is the performance of the two renderers. This is very hardware- and implementation-dependent, but generally speaking, rasterizers can produce full-screen images of complex scenes up to 60 times per second or more, which makes them suitable for interactive applications such as videogames, while raytracers may take multiple seconds to render the same scene once. This difference might tend to disappear in the future; advances in hardware in recent years are making raytracer performance much more competitive with that of rasterizers.</p>
+<h2 id="summary"><a href="13-shading.html#summary">Summary</a></h2>
+<p>In this chapter, we added illumination to our rasterizer. The illumination equation we use is exactly the same as the one in <a href="03-light.html">Chapter 3 (Light)</a>, because we’re using the same lighting model. However, where the raytracer computed the illumination equation at each pixel, our rasterizer can support a variety of different techniques to achieve a specific trade-off between performance and image quality.</p>
+<p>The fastest shading algorithm, which also produces the least appealing results, is flat shading: we compute the illumination of a single point in a triangle and use it for every pixel in that triangle. This results in a very faceted appearance, especially for objects that approximate curved surfaces such as spheres.</p>
+<p>One step up the quality ladder, we have Gouraud shading: we compute the illumination of the three vertices of a triangle and then interpolate this value across the face of the triangle. This gives objects a smoother appearance, including curved objects. However, this technique fails to capture more subtle lighting effects, such as specular highlights.</p>
+<p>Finally, we studied Phong shading. Much like our raytracer, it computes the illumination equation at every pixel, producing the best results and also the worst performance. The trick in Phong shading is knowing how to compute all the necessary values to evaluate the illumination equation; once again, the answer is linear interpolation—in this case, of normal vectors.</p>
+<p>In the next chapter, we’ll add even more detail to the surface of our triangles, using a technique that we haven’t studied for the raytracer: texture mapping.</p>
+<div class="cgfs-buy">
+Found this interesting? <br/> <b>Buy the book from <a href="https://nostarch.com/computer-graphics-scratch">No Starch Press</a> or <a href="https://www.amazon.com/Computer-Graphics-Scratch-Gabriel-Gambetta/dp/1718500769">Amazon</a>. </b>
+</div>
+<div class="centered">
+<b><a href="12-hidden-surface-removal.html">&lt;&lt; Hidden Surface Removal</a> | <a href="14-textures.html">Textures &gt;&gt;</a></b>
+</div>
+<div class="cgfs_navbar">
+<b>Computer Graphics From Scratch</b> · <a href="dedication.html">Dedication</a> | <a href="acknowledgements.html">Acknowledgements</a> | <a href="index.html">Table of Contents</a> | <a href="00-introduction.html">Introduction</a> | <a href="01-common-concepts.html">Introductory Concepts</a><br/><b>Part I: Raytracing</b> · <a href="02-basic-raytracing.html">Basic Raytracing</a> | <a href="03-light.html">Light</a> | <a href="04-shadows-and-reflections.html">Shadows and Reflections</a> | <a href="05-extending-the-raytracer.html">Extending the Raytracer</a><br/><b>Part II: Rasterization</b> · <a href="06-lines.html">Lines</a> | <a href="07-filled-triangles.html">Filled Triangles</a> | <a href="08-shaded-triangles.html">Shaded Triangles</a> | <a href="09-perspective-projection.html">Perspective Projection</a> | <a href="10-describing-and-rendering-a-scene.html">Describing and Rendering a Scene</a> | <a href="11-clipping.html">Clipping</a> | <a href="12-hidden-surface-removal.html">Hidden Surface Removal</a> | Shading | <a href="14-textures.html">Textures</a> | <a href="15-extending-the-rasterizer.html">Extending the Rasterizer</a><br/><b>Appendixes</b> · <a href="A0-linear-algebra.html">Linear Algebra</a> | <a href="afterword.html">Afterword</a>
+</div>
+<div class="signup" id="signup">
+</div>
+<script>$("#signup").load("/signup.php?m=cgfs&r=13-shading");</script>
+</div>
+<div class="copyright">© Gabriel Gambetta 2026</div>
+</body>
+</html>

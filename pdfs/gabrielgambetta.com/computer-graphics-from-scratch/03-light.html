@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html class="cgfs" lang="en" xml:lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, user-scalable=yes" name="viewport"/>
+<title>Light - Computer Graphics from Scratch - Gabriel Gambetta</title>
+<style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+</style>
+<link href="../css/style.css" rel="stylesheet"/>
+<!--[if lt IE 9]>
+<script src="//cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv-printshiv.min.js"></script>
+<![endif]-->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.2/MathJax.js?config=TeX-AMS-MML_HTMLorMML" type="text/javascript"></script>
+<script src="../js/jquery-3.2.1.min.js"></script>
+<!-- Google tag (gtag.js) -->
+<script async="" src="https://www.googletagmanager.com/gtag/js?id=G-M38VSQ9GME"></script>
+<script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-M38VSQ9GME');
+</script>
+</head>
+<body>
+<div class="main">
+<div class="nav">
+<a href="index.html">&lt;&lt; Computer Graphics from Scratch</a> <a class="homelink" href="https://gabrielgambetta.com/index.html">Gabriel Gambetta</a>
+</div>
+<div style="clear:both;"></div>
+<h1 id="ch:light">Light</h1>
+<p>We’ll start adding “realism” to our rendering of the scene by introducing light. Light is a vast and complex topic, so we’ll present a simplified model that is good enough for our purposes. This model is, for the most part, inspired by how light works in the real world, but it also takes some liberties with the aim of making the rendered scenes look good.</p>
+<p>We’ll start with some simplifying assumptions that will make our lives easier, then we’ll introduce three types of light sources: point lights, directional lights, and ambient light. We’ll end the chapter by discussing how these lights affect the appearance of surfaces, including diffuse and specular reflection.</p>
+<h2 id="simplifying-assumptions"><a href="03-light.html#simplifying-assumptions">Simplifying Assumptions</a></h2>
+<p>Let’s make a few assumptions to make things simpler. First, we declare that all light is white. This lets us characterize any light using a single real number, <span class="math inline">\(i\)</span>, called the <em>intensity</em> of the light. Simulating colored lights isn’t that complicated (we’d just use three intensity values, one per color channel, and compute all color and lighting channel-wise), but we’ll stick to white lights to keep things simple.</p>
+<p>Second, we’ll ignore the atmosphere. In real life, lights look dimmer the farther away they are; this is because of particles floating in the air that absorb part of the light as it travels through them. While this isn’t particularly complicated to do in a raytracer, we’ll keep it simple and ignore this effect; in our scene, distance doesn’t make lights any less bright.</p>
+<h2 id="light-sources"><a href="03-light.html#light-sources">Light Sources</a></h2>
+<p>Light has to come from somewhere. In this section, we’ll define three different types of light sources.</p>
+<h3 id="point-lights"><a href="03-light.html#point-lights">Point Lights</a></h3>
+<p><em>Point lights</em> emit light from a fixed point in 3D space, called their <em>position</em>. They emit light equally in every direction; this is why they are also called <em>omnidirectional lights</em>. A point light is therefore fully described by its position and its intensity.</p>
+<p>A light bulb is a good real-life approximation of a point light. While a real-life light bulb doesn’t emit light from a single point, and it isn’t perfectly omnidirectional, it’s a pretty accurate approximation.</p>
+<p>Let’s define the vector <span class="math inline">\(\vec{L}\)</span> as the direction from a point in the scene, <span class="math inline">\(P\)</span>, to the light, <span class="math inline">\(Q\)</span>. We can calculate this vector, called the <em>light vector</em>, as <span class="math inline">\(Q - P\)</span>. Note that since <span class="math inline">\(Q\)</span> is fixed but <span class="math inline">\(P\)</span> can be any point in the scene, <span class="math inline">\(\vec{L}\)</span> is different for every point in the scene, as you can see in Figure 3-1.</p>
+<figure>
+<img alt="Figure 3-1: A point light at Q. The \vec{\mathsf{L}} vector is different for every point P." id="fig:point_light" src="images/05-point-light.png"/><figcaption aria-hidden="true">Figure 3-1: A point light at <em>Q</em>. The <span class="math inline">\(\vec{\mathsf{L}}\)</span> vector is different for every point <em>P</em>.</figcaption>
+</figure>
+<h3 id="directional-lights"><a href="03-light.html#directional-lights">Directional Lights</a></h3>
+<p>If a point light is a good approximation of a light bulb, does it also work as an approximation of the Sun?</p>
+<p>This is a tricky question, and the answer depends on what we are trying to render. At the solar-system scale, the Sun can be approximated as a point light. After all, it emits light from a point, and it emits in all directions, so it seems to qualify.</p>
+<p>However, if our scene represents something happening on Earth, it’s not such a good approximation. The Sun is so far away that every ray of light that reaches us has almost exactly the same direction. We could approximate this with a point light located very, very, very far away from the objects in the scene. However, the distance between the light and the objects would be orders of magnitude greater than the distance between objects, so we’d start running into numerical accuracy errors.</p>
+<p>To better handle these situations, we define <em>directional lights</em>. Like point lights, directional lights have an intensity, but unlike them, they don’t have a position; instead, they have a fixed <em>direction</em>. You can think of them as infinitely distant point lights located in the specified direction.</p>
+<p>While in the case of point lights we need to compute a different light vector <span class="math inline">\(\vec{L}\)</span> for every point <span class="math inline">\(P\)</span> in the scene, in this case <span class="math inline">\(\vec{L}\)</span> is given. In the Sun-to-Earth scene example, <span class="math inline">\(\vec{L}\)</span> would be <em>(center of Sun) – (center of Earth)</em>. Figure 3-2 shows what this looks like.</p>
+<figure>
+<img alt="Figure 3-2: A directional light. The \vec{\mathsf{L}} vector is the same for every point P." id="fig:directional_light" src="images/05-directional-light.png"/><figcaption aria-hidden="true">Figure 3-2: A directional light. The <span class="math inline">\(\vec{\mathsf{L}}\)</span> vector is the same for every point <em>P</em>.</figcaption>
+</figure>
+<p>As we can see here, the light vector of a directional light is the same for every point in the scene. Compare this with Figure 3-1, where the light vector of a point light is different for every point in the scene.</p>
+<h3 id="ambient-light"><a href="03-light.html#ambient-light">Ambient Light</a></h3>
+<p>Can every real-life light be modeled as a point or directional light? Pretty much. Are these two types of light enough to light a scene? Unfortunately not.</p>
+<p>Consider what happens to the Moon. The only significant light source nearby is the Sun. So the “front half” of the Moon with respect to the Sun gets all its light, and its “back half” is in complete darkness. We see this from different angles from Earth, creating what we call the “phases” of the Moon.</p>
+<p>However, the situation down here on Earth is a bit different. Even points that don’t receive light directly from a light source aren’t completely in the dark (just look at the floor under your chair). How do rays of light reach these points if their “view” of the light sources is obstructed by something else?</p>
+<p>As mentioned in “Color Models” in <a href="01-common-concepts.html">Chapter 1 (Introductory Concepts)</a>, when light hits an object, part of it is absorbed, but the rest is scattered back into the scene. This means that light can come not only from light sources, but also from objects that get light from light sources and scatter part of it back into the scene. But why stop there? The scattered light will in turn hit some other object, part of it will be absorbed, and part of it will be scattered back into the scene. And so on, until all of the energy of the original light has been absorbed by the surfaces in the scene.</p>
+<p>This means we should treat <em>every object</em> as a light source. As you can imagine, this would add a lot of complexity to our model, so we won’t explore that mechanism in this book. If you’re curious, search for <em>global illumination</em> and marvel at the pretty pictures.</p>
+<p>But we still don’t want every object to be either directly illuminated or completely dark (unless we’re actually rendering a model of the solar system). To overcome this limitation, we’ll define a third type of light source, called <em>ambient light</em>, which is characterized only by its intensity. We’ll declare that an ambient light contributes some light to every point in the scene, regardless of where it is. It’s a gross oversimplification of the very complex interaction between the light sources and the surfaces in the scene, but it works well enough.</p>
+<p>In general, a scene will have a single ambient light (because ambient lights only have an intensity value, any number of them can be trivially combined into a single ambient light) and an arbitrary number of point and directional lights.</p>
+<h2 id="illumination-of-a-single-point"><a href="03-light.html#illumination-of-a-single-point">Illumination of a Single Point</a></h2>
+<p>Now that we know how to define the lights in a scene, we need to figure out how the lights interact with the surfaces of the objects in the scene.</p>
+<p>In order to compute the illumination of a single point, we’ll compute the amount of light contributed by each light source and add them together to get a single number representing the total amount of light the point receives. We can then multiply the color of the surface at that point by this amount to get the shade of color that represents how much light it receives.</p>
+<p>So, what happens when a ray of light, be it from a directional light or a point light, hits a point on some object in our scene?</p>
+<p>We can intuitively classify objects into two broad classes, depending on how they reflect light: “matte” and “shiny” objects. Since most objects around us can be classified as matte, we’ll focus on this group first.</p>
+<h2 id="diffuse-reflection"><a href="03-light.html#diffuse-reflection">Diffuse Reflection</a></h2>
+<p>When a ray of light hits a matte object, the ray is scattered back into the scene equally in every direction, a process called <em>diffuse reflection</em>; this is what makes matte objects look matte.</p>
+<p>To verify this, look at some matte object around you, such as a wall. If you move with respect to the wall, its color doesn’t change. That is, the light you see reflected from the object is the same no matter where you’re looking from.</p>
+<p>On the other hand, the amount of light reflected does depend on the <em>angle</em> between the ray of light and the surface. Intuitively, this happens because the energy carried by the ray has to spread over a smaller or bigger area depending on the angle, so the energy reflected to the scene per unit of area is higher or lower, respectively, as shown in Figure 3-3.</p>
+<figure>
+<img alt="Figure 3-3: The energy of a ray of light spreads over areas of different size, depending on its angle to the surface." id="fig:light_spread" src="images/06-light-spread.png"/><figcaption aria-hidden="true">Figure 3-3: The energy of a ray of light spreads over areas of different size, depending on its angle to the surface.</figcaption>
+</figure>
+<p>In Figure 3-3, we can see two rays of light of the same intensity (represented by having the same width) hitting a surface head-on and at an angle. The energy carried by the rays of light spreads uniformly across the areas they hit. The energy of the ray on the right spreads across a bigger area than that of the ray on the left, and therefore each point in its area receives less energy than in the left-hand case.</p>
+<p>To explore this mathematically, let’s characterize the orientation of a surface by its <em>normal vector</em>. The normal vector of a surface at point <span class="math inline">\(P\)</span>, or simply “the normal,” is a vector perpendicular to the surface at <span class="math inline">\(P\)</span>. It’s also a unit vector, meaning its length is <span class="math inline">\(1\)</span>. We’ll call this vector <span class="math inline">\(\vec{N}\)</span>.</p>
+<h3 id="modeling-diffuse-reflection"><a href="03-light.html#modeling-diffuse-reflection">Modeling Diffuse Reflection</a></h3>
+<p>A ray of light with direction <span class="math inline">\(\vec{L}\)</span> and intensity <span class="math inline">\(I\)</span> hits a surface with normal <span class="math inline">\(\vec{N}\)</span>. What fraction of <span class="math inline">\(I\)</span> is reflected back to the scene, as a function of <span class="math inline">\(I\)</span>, <span class="math inline">\(\vec{N}\)</span>, and <span class="math inline">\(\vec{L}\)</span>?</p>
+<p>As a geometric analogy, let’s represent the intensity of the light as the “width” of the ray. Its energy spreads over a surface of size <span class="math inline">\(A\)</span>. When <span class="math inline">\(\vec{N}\)</span> and <span class="math inline">\(\vec{L}\)</span> have the same direction—when the ray is perpendicular to the surface—then <span class="math inline">\(I = A\)</span>, which means the energy reflected per unit of area is the same as the incident energy per unit of area: <span class="math inline">\({I \over A} = 1\)</span>. On the other hand, as the angle between <span class="math inline">\(\vec{L}\)</span> and <span class="math inline">\(\vec{N}\)</span> approaches <span class="math inline">\(90^\circ\)</span>, <span class="math inline">\(A\)</span> approaches <span class="math inline">\(\infty\)</span>, so the energy per unit of area approaches 0; <span class="math inline">\(\lim_{A \to \infty} {I \over A} = 0\)</span>. But what happens in between?</p>
+<p>The situation is depicted in Figure 3-4. We know <span class="math inline">\(\vec{N}\)</span>, <span class="math inline">\(\vec{L}\)</span>, and <span class="math inline">\(P\)</span> ; I have added the angles <span class="math inline">\(\alpha\)</span> and <span class="math inline">\(\beta\)</span>, and the points <span class="math inline">\(Q\)</span>, <span class="math inline">\(R\)</span>, and <span class="math inline">\(S\)</span> to make writing about the diagram easier.</p>
+<figure>
+<img alt="Figure 3-4: The vectors and angles involved in the diffuse reflection calculations" id="fig:diffuse-diagram" src="images/06-diffuse-diagram.png"/><figcaption aria-hidden="true">Figure 3-4: The vectors and angles involved in the diffuse reflection calculations</figcaption>
+</figure>
+<p>Since a ray of light technically has no width, we can assume that everything happens in a flat, infinitesimally small patch of the surface. Even if it’s the surface of a sphere, the area we’re considering is so infinitesimally small that it’s almost flat in comparison with the size of the sphere, just like Earth looks flat at small scales.</p>
+<p>The ray of light, with a width of <span class="math inline">\(I\)</span>, hits the surface at <span class="math inline">\(P\)</span>, at an angle <span class="math inline">\(\beta\)</span>. The normal at <span class="math inline">\(P\)</span> is <span class="math inline">\(\vec{N}\)</span>, and the energy carried by the ray spreads over <span class="math inline">\(A\)</span>. We need to compute <span class="math inline">\({I \over A}\)</span>.</p>
+<p>Consider <span class="math inline">\(RS\)</span>, the “width” of the ray. By definition, it’s perpendicular to <span class="math inline">\(\vec{L}\)</span>, which is also the direction of <span class="math inline">\(PQ\)</span>. Therefore, <span class="math inline">\(PQ\)</span> and <span class="math inline">\(QR\)</span> form a right angle, making <span class="math inline">\(PQR\)</span> a right triangle.</p>
+<p>One of the angles of <span class="math inline">\(PQR\)</span> is <span class="math inline">\(90^\circ\)</span>, and another is <span class="math inline">\(\beta\)</span>. The remaining angle is therefore <span class="math inline">\(90^\circ - \beta\)</span>. But note that <span class="math inline">\(\vec{N}\)</span> and <span class="math inline">\(PR\)</span> also form a right angle, which means <span class="math inline">\(\alpha + \beta\)</span> must also be <span class="math inline">\(90^\circ\)</span>. Therefore, <span class="math inline">\(\widehat{QRP} = \alpha\)</span>.</p>
+<p>Let’s focus on the triangle <span class="math inline">\(PQR\)</span> (Figure 3-5). Its angles are <span class="math inline">\(\alpha\)</span>, <span class="math inline">\(\beta\)</span>, and <span class="math inline">\(90^\circ\)</span>. The side <span class="math inline">\(QR\)</span> measures <span class="math inline">\(I \over 2\)</span>, and the side <span class="math inline">\(PR\)</span> measures <span class="math inline">\(A \over 2\)</span>.</p>
+<figure>
+<img alt="Figure 3-5: The PQR triangle in a trigonometry context" id="fig:qrp" src="images/06-qrp.png"/><figcaption aria-hidden="true">Figure 3-5: The <em>PQR</em> triangle in a trigonometry context</figcaption>
+</figure>
+<p>And now, trigonometry to the rescue! By definition, <span class="math inline">\(cos(\alpha) = {QR \over PR}\)</span>; substituting <span class="math inline">\(QR\)</span> with <span class="math inline">\(I \over 2\)</span> and <span class="math inline">\(PR\)</span> with <span class="math inline">\(A \over 2\)</span>, we get</p>
+<p><span class="math display">\[cos(\alpha) = { {I \over 2} \over {A \over 2} }\]</span></p>
+<p>which becomes</p>
+<p><span class="math display">\[cos(\alpha) = {I \over A}\]</span></p>
+<p>We’re almost there. <span class="math inline">\(\alpha\)</span> is the angle between <span class="math inline">\(\vec{N}\)</span> and <span class="math inline">\(\vec{L}\)</span>. We can use the properties of the dot product (feel free to consult the Linear Algebra appendix) to express <span class="math inline">\(cos(\alpha)\)</span> as</p>
+<p><span class="math display">\[cos(\alpha) = {{\langle \vec{N}, \vec{L} \rangle} \over {|\vec{N}||\vec{L}|}}\]</span></p>
+<p>And finally</p>
+<p><span class="math display">\[{I \over A} = {{\langle \vec{N}, \vec{L} \rangle} \over {|\vec{N}||\vec{L}|}}\]</span></p>
+<p>We have arrived at a simple equation that gives us the fraction of light that is reflected as a function of the angle between the surface normal and the direction of the light.</p>
+<p>Note that the value of <span class="math inline">\(cos(\alpha)\)</span> becomes negative for angles over <span class="math inline">\(90^\circ\)</span>. If we blindly use this value, we can end up with a light source that makes a surface <em>darker</em>! This doesn’t make any physical sense; an angle over <span class="math inline">\(90^\circ\)</span> just means the light is actually illuminating the <em>back</em> of the surface, and therefore it doesn’t contribute any light to the point we’re illuminating. So if <span class="math inline">\(cos(\alpha)\)</span> becomes negative, we need to treat it as if it was <span class="math inline">\(0\)</span>.</p>
+<h3 id="the-diffuse-reflection-equation"><a href="03-light.html#the-diffuse-reflection-equation">The Diffuse Reflection Equation</a></h3>
+<p>We can now formulate an equation to compute the full amount of light received by a point <span class="math inline">\(P\)</span> with normal <span class="math inline">\(\vec{N}\)</span> in a scene with an ambient light of intensity <span class="math inline">\(I_A\)</span> and <span class="math inline">\(n\)</span> point or directional lights with intensity <span class="math inline">\(I_n\)</span> and light vectors <span class="math inline">\(\vec{L_n}\)</span> either known (for directional lights) or computed for <span class="math inline">\(P\)</span> (for point lights):</p>
+<p><span class="math display">\[I_P = I_A + \sum_{i = 1}^{n} I_i {{\langle \vec{N}, \vec{L_i} \rangle} \over {|\vec{N}||\vec{L_i}|}}\]</span></p>
+<p>It’s worth repeating that the terms where <span class="math inline">\(\langle \vec{N}, \vec{L_i} \rangle &lt; 0\)</span> shouldn’t be added to the point’s illumination.</p>
+<h3 id="sphere-normals"><a href="03-light.html#sphere-normals">Sphere Normals</a></h3>
+<p>There’s only a small detail missing: where do the normals come from? The answer to this general question is far more complex than it might seem, as we’ll see in the second part of this book. Fortunately, at this point we’re only dealing with spheres, and there’s a very simple answer for them: the normal vector of any point of a sphere lies on a line that goes through the center of the sphere. As you can see in Figure 3-6, if the sphere center is <span class="math inline">\(C\)</span>, the direction of the normal at point <span class="math inline">\(P\)</span> is <span class="math inline">\(P - C\)</span>.</p>
+<figure>
+<img alt="Figure 3-6: The normal of a sphere at P has the same direction as CP." id="fig:sphere_normal" src="images/06-sphere-normal.png"/><figcaption aria-hidden="true">Figure 3-6: The normal of a sphere at <em>P</em> has the same direction as <em>CP</em>.</figcaption>
+</figure>
+<p>Why “the direction of the normal” and not “the normal”? A normal vector needs to be perpendicular to the surface, but it also needs to have length <span class="math inline">\(1\)</span>. To <em>normalize</em> this vector and turn it into a true normal, we need to divide it by its own length, thus guaranteeing the result has length <span class="math inline">\(1\)</span>:</p>
+<p><span class="math display">\[\vec{N} = {{P - C} \over {|P - C|}}\]</span></p>
+<h3 id="rendering-with-diffuse-reflection"><a href="03-light.html#rendering-with-diffuse-reflection">Rendering with Diffuse Reflection</a></h3>
+<p>Let’s translate all of this to pseudocode. First, let’s add a couple of lights to the scene:</p>
+<pre>light {
+    type = ambient
+    intensity = 0.2
+}
+light {
+    type = point
+    intensity = 0.6
+    position = (2, 1, 0)
+}
+light {
+    type = directional
+    intensity = 0.2
+    direction = (1, 4, 4)
+}</pre>
+<p>Note that the intensities conveniently add up to <span class="math inline">\(1.0\)</span>; because of the way the lighting equation works, this ensures that no point can have a light intensity greater than this value. This means we won’t have any “overexposed” spots.</p>
+<p>The lighting equation is fairly straightforward to translate to pseudocode (Listing 3-1).</p>
+<pre data-caption="Listing 3-1: A function to compute lighting with diffuse reflection" data-label="lst:diffuse_reflection">ComputeLighting(P, N) {
+    i = 0.0
+    for light in scene.Lights {
+        if light.type == ambient {
+           ❶i += light.intensity
+        } else {
+            if light.type == point {
+               ❷L = light.position - P
+            } else {
+               ❸L = light.direction
+            }
+
+            n_dot_l = dot(N, L)
+           ❹if n_dot_l &gt; 0 {
+               ❺i += light.intensity * n_dot_l/(length(N) * length(L))
+            }
+        }
+    }
+    return i
+}</pre><figcaption class="code_caption">Listing 3-1: A function to compute lighting with diffuse reflection</figcaption>
+<p>In Listing 3-1, we treat the three types of light in slightly different ways. Ambient lights are the simplest and are handled directly ❶. Point and directional lights share most of the code, in particular the intensity calculation ❺, but the direction vectors are computed in different ways (❷ and ❸), depending on their type. The condition in ❹ makes sure we don’t add negative values, which represent lights illuminating the back side of the surface, as we discussed before.</p>
+<p>The only thing left to do is to use <code>ComputeLighting</code> in <code>TraceRay</code>. We replace the line that returns the color of the sphere:</p>
+<pre>return closest_sphere.color</pre>
+<p>with this snippet:</p>
+<pre>P = O + closest_t * D  // Compute intersection
+N = P - closest_sphere.center  // Compute sphere normal at intersection
+N = N / length(N)
+return closest_sphere.color * ComputeLighting(P, N)</pre>
+<p>Just for fun, let’s add a big yellow sphere:</p>
+<pre>sphere {
+    color = (255, 255, 0)  # Yellow
+    center = (0, -5001, 0)
+    radius = 5000
+}</pre>
+<p>We run the renderer and, lo and behold, the spheres now start to look like spheres (Figure 3-7)!</p>
+<figure>
+<img alt="Figure 3-7: Diffuse reflection adds a sense of depth and volume to the scene." id="fig:diffuse-reflection" src="images/raytracer-02.png"/><figcaption aria-hidden="true">Figure 3-7: Diffuse reflection adds a sense of depth and volume to the scene.</figcaption>
+</figure>
+<p><a class="cgfs_demo" href="https://gabrielgambetta.com/cgfs/diffuse-demo">Source code and live demo &gt;&gt;</a></p>
+<p>But wait, how did the big yellow sphere turn into a flat yellow floor? It hasn’t; it’s just so big compared to the other three spheres, and the camera is so close to it, that it looks flat—just like the surface of our planet looks flat when we’re standing on it.</p>
+<h2 id="specular-reflection"><a href="03-light.html#specular-reflection">Specular Reflection</a></h2>
+<p>Let’s turn our attention to <em>shiny</em> objects. Unlike matte objects, shiny objects look slightly different depending on where you’re looking from.</p>
+<p>Imagine a billiard ball or a car just out of the car wash. These kinds of objects exhibit very specific light patterns, usually bright spots, that seem to move as you move around them. Unlike matte objects, the way you perceive the surface of these objects does actually depend on your point of view.</p>
+<p>Note that a red billiard ball stays red if you walk around it, but the bright white spot that gives it its shiny appearance moves as you do. This shows that the new effect we want to model doesn’t replace diffuse reflection, but instead complements it.</p>
+<p>To understand why this happens, let’s take a closer look at how surfaces reflect light. As we saw in the previous section, when a ray of light hits the surface of a matte object, it’s scattered back to the scene equally in every direction. This happens because the surface of the object is irregular, so at the microscopic level it behaves like a set of tiny surfaces pointing in random directions (Figure 3-8):</p>
+<figure>
+<img alt="Figure 3-8: What the rough surface of a matte object might look like through a microscope. The incident rays of light are reflected in random directions." id="fig:rough_surface" src="images/06-rough-surface.png"/><figcaption aria-hidden="true">Figure 3-8: What the rough surface of a matte object might look like through a microscope. The incident rays of light are reflected in random directions.</figcaption>
+</figure>
+<p>But what if the surface isn’t that irregular? Let’s go to the other extreme: a perfectly polished mirror. When a ray of light hits a mirror, it’s reflected in a single direction. If we call the direction of the reflected light <span class="math inline">\(\vec{R}\)</span>, and we keep the convention that <span class="math inline">\(\vec{L}\)</span> points toward the light source, Figure 3-9 illustrates the situation.</p>
+<figure>
+<img alt="Figure 3-9: Rays of light reflected by a mirror" id="fig:mirror" src="images/06-mirror.png"/><figcaption aria-hidden="true">Figure 3-9: Rays of light reflected by a mirror</figcaption>
+</figure>
+<p>Depending on how “polished” the surface is, it behaves more or less like a mirror; this is why it’s called <em>specular</em> reflection, from <em>speculum</em>, the Latin word for <em>mirror</em>.</p>
+<p>For a perfectly polished mirror, the incident ray of light <span class="math inline">\(\vec{L}\)</span> is reflected in a single direction, <span class="math inline">\(\vec{R}\)</span>. This is why you see reflected objects very clearly: for every incident ray of light <span class="math inline">\(\vec{L}\)</span>, there’s a single reflected ray <span class="math inline">\(\vec{R}\)</span>. But not every object is perfectly polished; while <em>most</em> of the light is reflected in the direction of <span class="math inline">\(\vec{R}\)</span>, <em>some</em> of it is reflected in directions close to <span class="math inline">\(\vec{R}\)</span>. The closer to <span class="math inline">\(\vec{R}\)</span>, the more light is reflected in that direction, as you can see in Figure 3-10. The “shininess” of the object is what determines how rapidly the reflected light decreases as you move away from <span class="math inline">\(\vec{R}\)</span>.</p>
+<figure>
+<img alt="Figure 3-10: For surfaces that aren’t perfectly polished, the closer a direction is to \vec{\mathsf{R}}, the more rays of light are reflected in that direction." id="fig:specular_decay" src="images/07-specular-decay.png"/><figcaption aria-hidden="true">Figure 3-10: For surfaces that aren’t perfectly polished, the closer a direction is to <span class="math inline">\(\vec{\mathsf{R}}\)</span>, the more rays of light are reflected in that direction.</figcaption>
+</figure>
+<p>We want to figure out how much light from <span class="math inline">\(\vec{L}\)</span> is reflected back in the direction of our point of view. If <span class="math inline">\(\vec{V}\)</span> is the “view vector” pointing from <span class="math inline">\(P\)</span> to the camera, and <span class="math inline">\(\alpha\)</span> is the angle between <span class="math inline">\(\vec{R}\)</span> and <span class="math inline">\(\vec{V}\)</span>, we get Figure 3-11.</p>
+<figure>
+<img alt="Figure 3-11: The vectors and angles involved in the specular reflection calculation" id="fig:specular_diagram" src="images/07-specular-diagram.png"/><figcaption aria-hidden="true">Figure 3-11: The vectors and angles involved in the specular reflection calculation</figcaption>
+</figure>
+<p>For <span class="math inline">\(\alpha = 0^\circ\)</span>, all the light is reflected in the direction of <span class="math inline">\(\vec{V}\)</span>. For <span class="math inline">\(\alpha = 90^\circ\)</span>, no light is reflected. As with diffuse reflection, we need a mathematical expression to determine what happens for intermediate values of <span class="math inline">\(\alpha\)</span>.</p>
+<h3 id="modeling-specular-reflection"><a href="03-light.html#modeling-specular-reflection">Modeling Specular Reflection</a></h3>
+<p>At the beginning of this chapter, I mentioned that some models aren’t based on physical models. This is one of them. The following model is arbitrary, but it’s used because it’s easy to compute and it looks good.</p>
+<p>Consider <span class="math inline">\(cos(\alpha)\)</span>. It has the nice properties that <span class="math inline">\(cos(0) = 1\)</span> and <span class="math inline">\(cos(\pm 90) = 0\)</span>, just like we need; and the values become gradually smaller from <span class="math inline">\(0\)</span> to <span class="math inline">\(90\)</span> in a very pleasant curve (Figure 3-12).</p>
+<figure>
+<img alt="Figure 3-12: The graph of cos(\boldsymbol{\alpha})." id="fig:cos_alpha" src="images/07-cos-alpha.png"/><figcaption aria-hidden="true">Figure 3-12: The graph of <em>cos(<span class="math inline">\(\boldsymbol{\alpha}\)</span>)</em>.</figcaption>
+</figure>
+<p>This means <span class="math inline">\(cos(\alpha)\)</span> matches all of our requirements for the specular reflection function, so why not use it?</p>
+<p>There’s one more detail. If we used this formula straight away, every object would be equally shiny. How can we adapt the equation to represent varying degrees of shininess?</p>
+<p>Remember that shininess is a measure of how quickly the reflection function decreases as <span class="math inline">\(\alpha\)</span> increases. A simple way to obtain different shininess curves is to compute the power of <span class="math inline">\(cos(\alpha)\)</span> to some positive exponent <span class="math inline">\(s\)</span>. Since <span class="math inline">\(0 \le cos(\alpha) \le 1\)</span>, we are guaranteed that <span class="math inline">\(0 \le cos(\alpha)^s \le 1\)</span>; so <span class="math inline">\(cos(\alpha)^s\)</span> is just like <span class="math inline">\(cos(\alpha)\)</span>, only “narrower.” Figure 3-13 shows the graph for <span class="math inline">\(cos(\alpha)^s\)</span> for different values of <span class="math inline">\(s\)</span>.</p>
+<figure>
+<img alt="Figure 3-13: The graph of cos(\boldsymbol{\alpha})s" id="fig:specular_exponent" src="images/07-specular-exponent.png"/><figcaption aria-hidden="true">Figure 3-13: The graph of cos(<span class="math inline">\(\boldsymbol{\alpha}\)</span>)<sup>s</sup></figcaption>
+</figure>
+<p>The bigger the value of <span class="math inline">\(s\)</span>, the “narrower” the function becomes around <span class="math inline">\(0\)</span> and the shinier the object looks. <span class="math inline">\(s\)</span> is called the <em>specular exponent</em> and it’s a property of the surface. Since the model is not based on physical reality, the values of <span class="math inline">\(s\)</span> can only be determined by trial and error—essentially, tweaking the values until they look “right.” For a physically based model, you can look into bidirectional reflectance distribution functions (BRDFs).</p>
+<p>Let’s put all of this together. A ray of light hits a surface with specular exponent <span class="math inline">\(s\)</span> at point <span class="math inline">\(P\)</span>, where its normal is <span class="math inline">\(\vec{N}\)</span>, from direction <span class="math inline">\(\vec{L}\)</span>. How much light is reflected toward the viewing direction <span class="math inline">\(\vec{V}\)</span>?</p>
+<p>According to our model, this value is <span class="math inline">\(cos(\alpha)^s\)</span>, where <span class="math inline">\(\alpha\)</span> is the angle between <span class="math inline">\(\vec{V}\)</span> and <span class="math inline">\(\vec{R}\)</span>; <span class="math inline">\(\vec{R}\)</span> is in turn <span class="math inline">\(\vec{L}\)</span> reflected with respect to <span class="math inline">\(\vec{N}\)</span>. So the first step is to compute <span class="math inline">\(\vec{R}\)</span> from <span class="math inline">\(\vec{N}\)</span> and <span class="math inline">\(\vec{L}\)</span>.</p>
+<p>We can decompose <span class="math inline">\(\vec{L}\)</span> into two vectors, <span class="math inline">\(\vec{L_P}\)</span> and <span class="math inline">\(\vec{L_N}\)</span>, such that <span class="math inline">\(\vec{L} = \vec{L_N} + \vec{L_P}\)</span>, where <span class="math inline">\(\vec{L_N}\)</span> is parallel to <span class="math inline">\(\vec{N}\)</span> and <span class="math inline">\(\vec{L_P}\)</span> is perpendicular to <span class="math inline">\(\vec{N}\)</span> (Figure 3-14).</p>
+<figure>
+<img alt="Figure 3-14: Decomposing \vec{\mathsf{L}} into its components \vec{\mathsf{L_P}} and \vec{\mathsf{L_N}}" id="fig:nl" src="images/08-nl.png"/><figcaption aria-hidden="true">Figure 3-14: Decomposing <span class="math inline">\(\vec{\mathsf{L}}\)</span> into its components <span class="math inline">\(\vec{\mathsf{L_P}}\)</span> and <span class="math inline">\(\vec{\mathsf{L_N}}\)</span></figcaption>
+</figure>
+<p><span class="math inline">\(\vec{L_N}\)</span> is the projection of <span class="math inline">\(\vec{L}\)</span> over <span class="math inline">\(\vec{N}\)</span>; by the properties of the dot product and the fact that <span class="math inline">\(|\vec{N}| = 1\)</span>, the length of this projection is <span class="math inline">\(\langle \vec{N}, \vec{L} \rangle\)</span>. We defined <span class="math inline">\(\vec{L_N}\)</span> to be parallel to <span class="math inline">\(\vec{N}\)</span>, so <span class="math inline">\(\vec{L_N} = \vec{N} \langle \vec{N}, \vec{L} \rangle\)</span>.</p>
+<p>Since <span class="math inline">\(\vec{L} = \vec{L_P} + \vec{L_N}\)</span>, we can immediately get <span class="math inline">\(\vec{L_P} = \vec{L} - \vec{L_N} = \vec{L} - \vec{N} \langle \vec{N}, \vec{L} \rangle\)</span>.</p>
+<p>Now let’s look at <span class="math inline">\(\vec{R}\)</span>. Since it’s symmetrical to <span class="math inline">\(\vec{L}\)</span> with respect to <span class="math inline">\(\vec{N}\)</span>, its component parallel to <span class="math inline">\(\vec{N}\)</span> is the same as <span class="math inline">\(\vec{L}\)</span>’s, and its perpendicular component is the opposite of <span class="math inline">\(\vec{L}\)</span>’s; that is, <span class="math inline">\(\vec{R} = \vec{L_N} - \vec{L_P}\)</span>. You can see this in Figure 3-15.</p>
+<figure>
+<img alt="Figure 3-15: Computing \vec{\mathsf{L_R}}" id="fig:vec-r" src="images/08-vec-r.png"/><figcaption aria-hidden="true">Figure 3-15: Computing <span class="math inline">\(\vec{\mathsf{L_R}}\)</span></figcaption>
+</figure>
+<p>Substituting with the expressions we found above, we get</p>
+<p><span class="math display">\[\vec{R} = \vec{N} \langle \vec{N}, \vec{L} \rangle - \vec{L} + \vec{N} \langle \vec{N}, \vec{L} \rangle\]</span></p>
+<p>and simplifying a bit</p>
+<p><span class="math display">\[\vec{R} = 2\vec{N} \langle \vec{N}, \vec{L} \rangle - \vec{L}\]</span></p>
+<h3 id="the-specular-reflection-term"><a href="03-light.html#the-specular-reflection-term">The Specular Reflection Term</a></h3>
+<p>We’re now ready to write an equation for the specular reflection:</p>
+<p><span class="math display">\[\vec{R} = 2\vec{N} \langle \vec{N}, \vec{L} \rangle - \vec{L}\]</span></p>
+<p><span class="math display">\[I_S = I_L \left( {{\langle \vec{R}, \vec{V} \rangle} \over {|\vec{R}||\vec{V}|}} \right)^s\]</span></p>
+<p>As with diffuse lighting, it’s possible that <span class="math inline">\(cos(\alpha)\)</span> is negative, and we should ignore it for the same reason as before. Also, not every object has to be shiny; for matte objects, the specular term shouldn’t be computed at all. We’ll note this in the scene by setting their specular exponent to <span class="math inline">\(-1\)</span> and handling them accordingly.</p>
+<h3 id="the-full-illumination-equation"><a href="03-light.html#the-full-illumination-equation">The Full Illumination Equation</a></h3>
+<p>We can add the specular reflection term to the illumination equation we’ve been developing and get a single expression that describes illumination at a point:</p>
+<p><span class="math display">\[I_P = I_A + \sum_{i = 1}^{n} I_i \cdot \left[ {{{\langle \vec{N}, \vec{L_i} \rangle} \over {|\vec{N}||\vec{L_i}|}} + \left( {{\langle \vec{R_i}, \vec{V} \rangle} \over {|\vec{R_i}||\vec{V}|}} \right)^s} \right]\]</span></p>
+<p>where <span class="math inline">\(I_P\)</span> is the total illumination at point <span class="math inline">\(P\)</span>, <span class="math inline">\(I_A\)</span> is the intensity of the ambient light, <span class="math inline">\(N\)</span> is the normal of the surface at <span class="math inline">\(P\)</span>, <span class="math inline">\(V\)</span> is the vector from <span class="math inline">\(P\)</span> to the camera, <span class="math inline">\(s\)</span> is the specular exponent of the surface, <span class="math inline">\(I_i\)</span> is the intensity of light <span class="math inline">\(i\)</span>, <span class="math inline">\(L_i\)</span> is the vector from P to light <span class="math inline">\(i\)</span>, and <span class="math inline">\(R_i\)</span> is the reflection vector at <span class="math inline">\(P\)</span> for light <span class="math inline">\(i\)</span>.</p>
+<h3 id="rendering-with-specular-reflections"><a href="03-light.html#rendering-with-specular-reflections">Rendering with Specular Reflections</a></h3>
+<p>Let’s add specular reflections to the scene we’ve been working with so far. First, some changes to the scene itself:</p>
+<pre>sphere {
+    center = (0, -1, 3)
+    radius = 1
+    color = (255, 0, 0)  # Red
+    specular = 500  # Shiny
+}
+sphere {
+    center = (2, 0, 4)
+    radius = 1
+    color = (0, 0, 255)  # Blue
+    specular = 500  # Shiny
+}
+sphere {
+    center = (-2, 0, 4)
+    radius = 1
+    color = (0, 255, 0)  # Green
+    specular = 10  # Somewhat shiny
+}
+sphere {
+    center = (0, -5001, 0)
+    radius = 5000
+    color = (255, 255, 0)  # Yellow
+    specular = 1000  # Very shiny
+}</pre>
+<p>This is the same scene as before, with the addition of specular exponents to the sphere definitions.</p>
+<p>At the code level, we need to change <code>ComputeLighting</code> to compute the specular term when necessary, and add it to the overall light. Note that the function now needs <span class="math inline">\(\vec{V}\)</span> and <span class="math inline">\(s\)</span>, as you can see in Listing 3-2.</p>
+<pre data-caption="Listing 3-2: &lt;code&gt;ComputeLighting&lt;/code&gt; that supports both diffuse and specular reflections" data-label="lst:specular_reflection">ComputeLighting(P, N, V, s) {
+    i = 0.0
+    for light in scene.Lights {
+        if light.type == ambient {
+            i += light.intensity
+        } else {
+            if light.type == point {
+                L = light.position - P
+            } else {
+                L = light.direction
+            }
+
+            // Diffuse
+            n_dot_l = dot(N, L)
+            if n_dot_l &gt; 0 {
+                i += light.intensity * n_dot_l/(length(N) * length(L))
+            }
+
+            // Specular
+         ❶ if s != -1 {
+                R = 2 * N * dot(N, L) - L
+                r_dot_v = dot(R, V)
+             ❷ if r_dot_v &gt; 0 {
+                    i += light.intensity * pow(r_dot_v/(length(R) * length(V)), s)
+                }
+            }
+        }
+    }
+    return i
+}</pre><figcaption class="code_caption">Listing 3-2: <code>ComputeLighting</code> that supports both diffuse and specular reflections</figcaption>
+<p>Most of the code remains unchanged, but we add a fragment to handle specular reflections. We make sure it applies only to shiny objects ❶ and also make sure we don’t add negative light intensity ❷, as we did for diffuse reflection.</p>
+<p>Finally, we need to modify <code>TraceRay</code> to pass the new parameters to <code>Compute</code> <code>Lighting</code>. <span class="math inline">\(s\)</span> is straightforward: it comes directly from the scene definition. But where does <span class="math inline">\(\vec{V}\)</span> come from?</p>
+<p><span class="math inline">\(\vec{V}\)</span> is a vector that points from the object to the camera. Fortunately, we already have a vector that points from the camera to the object at <code>TraceRay</code>—that’s <span class="math inline">\(\vec{D}\)</span>, the direction of the ray we’re tracing! So <span class="math inline">\(\vec{V}\)</span> is simply <span class="math inline">\(-\vec{D}\)</span>.</p>
+<p>Listing 3-3 gives the new <code>TraceRay</code> with specular reflection.</p>
+<pre data-caption="Listing 3-3: &lt;code&gt;TraceRay&lt;/code&gt; with specular reflection" data-label="traceray_specular_reflection">TraceRay(O, D, t_min, t_max) {
+    closest_t = inf
+    closest_sphere = NULL
+    for sphere in scene.Spheres {
+        t1, t2 = IntersectRaySphere(O, D, sphere)
+        if t1 in [t_min, t_max] and t1 &lt; closest_t {
+            closest_t = t1
+            closest_sphere = sphere
+        }
+        if t2 in [t_min, t_max] and t2 &lt; closest_t {
+            closest_t = t2
+            closest_sphere = sphere
+        }
+    }
+    if closest_sphere == NULL {
+        return BACKGROUND_COLOR
+    }
+
+    P = O + closest_t * D  // Compute intersection
+    N = P - closest_sphere.center  // Compute sphere normal at intersection
+    N = N / length(N)
+ ❶ return closest_sphere.color * ComputeLighting(P, N, -D, closest_sphere.specular)
+}</pre><figcaption class="code_caption">Listing 3-3: <code>TraceRay</code> with specular reflection</figcaption>
+<p>The color calculation ❶ is slightly more involved than it looks. Remember that colors must be multiplied channel-wise and the results must be clamped to the range of the channel (in our case, [0–255]). Although in the example scene the light intensities add up to 1.0, now that we’re adding the contributions of specular reflections, the values could go beyond that range.</p>
+<p>You can see the reward for all this vector juggling in Figure 3-16.</p>
+<figure>
+<img alt="Figure 3-16: The scene rendered with ambient, diffuse, and specular reflection. Not only do we get a sense of depth and volume, but each surface also has a slightly different appearance." id="fig:raytracer-03.png" src="images/raytracer-03.png"/><figcaption aria-hidden="true">Figure 3-16: The scene rendered with ambient, diffuse, and specular reflection. Not only do we get a sense of depth and volume, but each surface also has a slightly different appearance.</figcaption>
+</figure>
+<p><a class="cgfs_demo" href="https://gabrielgambetta.com/cgfs/specular-demo">Source code and live demo &gt;&gt;</a></p>
+<p>Note that in Figure 3-16, the red sphere with a specular exponent of 500 has a more concentrated bright spot than the green sphere with a specular exponent of 10, exactly as expected. The blue sphere also has a specular exponent of 500 but no visible bright spot. This is only a consequence of how the image is cropped and how the lights are placed in the scene; indeed, the left half of the red sphere also doesn’t exhibit any specular reflection.</p>
+<h2 id="summary"><a href="03-light.html#summary">Summary</a></h2>
+<p>In this chapter, we’ve taken the very simple raytracer developed in the previous chapter and given it the ability to model lights and the way they interact with the objects in the scene.</p>
+<p>We split lights into three types: point, directional, and ambient. We explored how each of them can represent a different type of light that you can find in real life, and how to describe them in our scene definition.</p>
+<p>We then turned our attention to the surface of the objects in the scene, splitting them into two types: matte and shiny. We discussed how rays of light interact with them and developed two models—diffuse and specular reflection—to compute how much light they reflect toward the camera.</p>
+<p>The end result is a much more realistic rendering of the scene: instead of seeing just the outlines of the objects, we now get a real sense of depth and volume and a feel for the materials the objects are made of.</p>
+<p>However, we are missing a fundamental aspect of lights: shadows. This is the focus of the next chapter.</p>
+<div class="cgfs-buy">
+Found this interesting? <br/> <b>Buy the book from <a href="https://nostarch.com/computer-graphics-scratch">No Starch Press</a> or <a href="https://www.amazon.com/Computer-Graphics-Scratch-Gabriel-Gambetta/dp/1718500769">Amazon</a>. </b>
+</div>
+<div class="centered">
+<b><a href="02-basic-raytracing.html">&lt;&lt; Basic Raytracing</a> | <a href="04-shadows-and-reflections.html">Shadows and Reflections &gt;&gt;</a></b>
+</div>
+<div class="cgfs_navbar">
+<b>Computer Graphics From Scratch</b> · <a href="dedication.html">Dedication</a> | <a href="acknowledgements.html">Acknowledgements</a> | <a href="index.html">Table of Contents</a> | <a href="00-introduction.html">Introduction</a> | <a href="01-common-concepts.html">Introductory Concepts</a><br/><b>Part I: Raytracing</b> · <a href="02-basic-raytracing.html">Basic Raytracing</a> | Light | <a href="04-shadows-and-reflections.html">Shadows and Reflections</a> | <a href="05-extending-the-raytracer.html">Extending the Raytracer</a><br/><b>Part II: Rasterization</b> · <a href="06-lines.html">Lines</a> | <a href="07-filled-triangles.html">Filled Triangles</a> | <a href="08-shaded-triangles.html">Shaded Triangles</a> | <a href="09-perspective-projection.html">Perspective Projection</a> | <a href="10-describing-and-rendering-a-scene.html">Describing and Rendering a Scene</a> | <a href="11-clipping.html">Clipping</a> | <a href="12-hidden-surface-removal.html">Hidden Surface Removal</a> | <a href="13-shading.html">Shading</a> | <a href="14-textures.html">Textures</a> | <a href="15-extending-the-rasterizer.html">Extending the Rasterizer</a><br/><b>Appendixes</b> · <a href="A0-linear-algebra.html">Linear Algebra</a> | <a href="afterword.html">Afterword</a>
+</div>
+<div class="signup" id="signup">
+</div>
+<script>$("#signup").load("/signup.php?m=cgfs&r=03-light");</script>
+</div>
+<div class="copyright">© Gabriel Gambetta 2026</div>
+</body>
+</html>

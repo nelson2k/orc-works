@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html class="cgfs" lang="en" xml:lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, user-scalable=yes" name="viewport"/>
+<title>Describing and Rendering a Scene - Computer Graphics from Scratch - Gabriel Gambetta</title>
+<style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+</style>
+<link href="../css/style.css" rel="stylesheet"/>
+<!--[if lt IE 9]>
+<script src="//cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv-printshiv.min.js"></script>
+<![endif]-->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.2/MathJax.js?config=TeX-AMS-MML_HTMLorMML" type="text/javascript"></script>
+<script src="../js/jquery-3.2.1.min.js"></script>
+<!-- Google tag (gtag.js) -->
+<script async="" src="https://www.googletagmanager.com/gtag/js?id=G-M38VSQ9GME"></script>
+<script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-M38VSQ9GME');
+</script>
+</head>
+<body>
+<div class="main">
+<div class="nav">
+<a href="index.html">&lt;&lt; Computer Graphics from Scratch</a> <a class="homelink" href="https://gabrielgambetta.com/index.html">Gabriel Gambetta</a>
+</div>
+<div style="clear:both;"></div>
+<h1 id="ch:scene_setup">Describing and Rendering a Scene</h1>
+<p>In the last few chapters, we’ve developed algorithms to draw 2D triangles on the canvas given their 2D coordinates, and we’ve explored the math required to transform the 3D coordinates of points in the scene to the 2D coordinates of points on the canvas.</p>
+<p>At the end of the previous chapter, we cobbled together a program that used both to render a 3D cube on the 2D canvas. In this chapter, we’ll formalize and extend that work with the goal of rendering a whole scene containing an arbitrary number of objects.</p>
+<h2 id="representing-a-cube"><a href="10-describing-and-rendering-a-scene.html#representing-a-cube">Representing a Cube</a></h2>
+<p>Let’s think again about how to represent and manipulate a cube, this time with the goal of finding a more general approach. The edges of our cube are 2 units long and are parallel to the coordinate axes, and it’s centered on the origin, as shown in Figure 10-1.</p>
+<figure>
+<img alt="Figure 10-1: Our standard cube" id="fig:cube" src="images/r13-cube.png"/><figcaption aria-hidden="true">Figure 10-1: Our standard cube</figcaption>
+</figure>
+<p>These are the coordinates of its vertices:</p>
+<div class="description">
+<p><span class="math inline">\(A = (1, 1, 1)\)</span></p>
+<p><span class="math inline">\(B = (-1, 1, 1)\)</span></p>
+<p><span class="math inline">\(C = (-1, -1, 1)\)</span></p>
+<p><span class="math inline">\(D = (1, -1, 1)\)</span></p>
+<p><span class="math inline">\(E = (1, 1, -1)\)</span></p>
+<p><span class="math inline">\(F = (-1, 1, -1)\)</span></p>
+<p><span class="math inline">\(G = (-1, -1, -1)\)</span></p>
+<p><span class="math inline">\(H = (1, -1, -1)\)</span></p>
+</div>
+<p>The sides of the cube are square, but the algorithms we have developed work with triangles. One of the reasons we chose triangles in the first place is that any other polygon, including squares, can be decomposed into triangles. So we’ll represent each square side of the cube using two triangles.</p>
+<p>However, we can’t take <em>any</em> three vertices of the cube and expect them to describe a triangle on its surface (for example, ADG is inside the cube). This means that the vertex coordinates, by themselves, don’t fully describe the cube: we also need to know which sets of three vertices describe the triangles that make up its sides.</p>
+<p>Here’s a possible list of triangles for our cube:</p>
+<pre>A, B, C
+A, C, D
+E, A, D
+E, D, H
+F, E, H
+F, H, G
+B, F, G
+B, G, C
+E, F, B
+E, B, A
+C, G, H
+C, H, D</pre>
+<p>This suggests a generic structure we can use to represent <em>any</em> object made of triangles: a <code>Vertices</code> list, holding the coordinates of each vertex; and a <code>Triangles</code> list, specifying which sets of three vertices describe triangles on the surface of the object.</p>
+<p>Each entry in the <code>Triangles</code> list may include additional information besides the vertices that make it up; for example, this would be the perfect place to specify the color of each triangle.</p>
+<p>Since the most natural way to store this information is in two lists, we’ll use list indices to refer to the vertices in the vertex list. So our cube would be represented like this:</p>
+<pre>Vertices
+0 = ( 1,  1,  1)
+1 = (-1,  1,  1)
+2 = (-1, -1,  1)
+3 = ( 1, -1,  1)
+4 = ( 1,  1, -1)
+5 = (-1,  1, -1)
+6 = (-1, -1, -1)
+7 = ( 1, -1, -1)
+
+Triangles
+ 0 = 0, 1, 2, red
+ 1 = 0, 2, 3, red
+ 2 = 4, 0, 3, green
+ 3 = 4, 3, 7, green
+ 4 = 5, 4, 7, blue
+ 5 = 5, 7, 6, blue
+ 6 = 1, 5, 6, yellow
+ 7 = 1, 6, 2, yellow
+ 8 = 4, 5, 1, purple
+ 9 = 4, 1, 0, purple
+10 = 2, 6, 7, cyan
+11 = 2, 7, 3, cyan</pre>
+<p>Rendering an object with this representation is quite simple: we first project every vertex, storing them in a temporary projected vertices list (since each vertex is used an average of four times, this avoids a lot of repeated work); then we go through the triangle list, rendering each individual triangle. A first approximation would look like this:</p>
+<pre data-caption="Listing 10-1: An algorithm to render any object made of triangles" data-label="lst:triangle_render">RenderObject(vertices, triangles) {
+    projected = []
+    for V in vertices {
+        projected.append(ProjectVertex(V))
+    }
+    for T in triangles {
+        RenderTriangle(T, projected)
+    }
+}
+
+RenderTriangle(triangle, projected) {
+    DrawWireframeTriangle(projected[triangle.v[0]],
+                          projected[triangle.v[1]],
+                          projected[triangle.v[2]],
+                          triangle.color)
+}</pre><figcaption class="code_caption">Listing 10-1: An algorithm to render any object made of triangles</figcaption>
+<p>We can go ahead and apply this directly to the cube as defined above, but the results won’t look good. This is because some of its vertices are behind the camera, which, as we discussed in the previous chapter, is a recipe for weird things. And if you look at the vertex coordinates and Figure 10-1, you’ll notice the coordinate origin, the position of our camera, is <em>inside</em> the cube.</p>
+<p>To work around this problem, we’ll just move the cube. To do this, we need to move each vertex of the cube in the same direction. Let’s call this direction <span class="math inline">\(\vec{T}\)</span>, for “translation.” We’ll translate the cube 7 units forward to make sure it’s completely in front of the camera. We’ll also translate it 1.5 units to the left to make it look more interesting. Since “forward” is the direction of <span class="math inline">\(\vec{Z_+}\)</span> and “left” is <span class="math inline">\(\vec{X-}\)</span>, the translation vector is simply</p>
+<p><span class="math display">\[\vec{T} = \begin{pmatrix} -1.5 \\ 0 \\ 7 \end{pmatrix}\]</span></p>
+<p>To compute the translated version <span class="math inline">\(V\, '\)</span> of each vertex <span class="math inline">\(V\)</span> in the cube, we just need to add the translation vector to it:</p>
+<p><span class="math display">\[V\, ' = V + \vec{T}\]</span></p>
+<p>At this point, we can take the cube, translate each vertex, and then apply the algorithm in Listing 10-1 to get our first 3D cube (Figure 10-2).</p>
+<figure>
+<img alt="Figure 10-2: Our cube, translated in front of the camera, rendered with wireframe triangles" id="fig:raster06" src="images/raster-06.png"/><figcaption aria-hidden="true">Figure 10-2: Our cube, translated in front of the camera, rendered with wireframe triangles</figcaption>
+</figure>
+<p><a class="cgfs_demo" href="https://gabrielgambetta.com/cgfs/scene-demo">Source code and live demo &gt;&gt;</a></p>
+<h2 id="models-and-instances"><a href="10-describing-and-rendering-a-scene.html#models-and-instances">Models and Instances</a></h2>
+<p>What if we want to render two cubes? A naive approach would be to create a new set of vertices and triangles describing a second cube. This would work, but it would waste a lot of memory. What if we wanted to render <em>one million</em> cubes?</p>
+<p>A better approach is to think in terms of <em>models</em> and <em>instances</em>. A model is a set of vertices and triangles that describes a certain object in a generic way (think “a cube has eight vertices and six sides”). An instance of a model, on the other hand, describes a concrete occurrence of that model within the scene (think “there’s a cube at (0, 0, 5)”).</p>
+<p>How do we apply this idea in practice? We can have a single description of each unique object in the scene and then place multiple copies of it by specifying their coordinates. Informally, it would be like saying, “This is what a cube looks like, and there’s cubes here, here and there.”</p>
+<p>This is a rough approximation of how we’d describe a scene using this approach:</p>
+<pre>model {
+    name = cube
+    vertices {
+        ...
+    }
+    triangles {
+        ...
+    }
+}
+
+instance {
+    model = cube
+    position = (-1.5, 0, 7)
+}
+
+instance {
+    model = cube
+    position = (1.25, 2, 7.5)
+}</pre>
+<p>In order to render this, we just go through the list of instances; for each instance, we make a copy of the model’s vertices, translate them according to the position of the instance, and then render them as before (Listing 10-2):</p>
+<pre data-caption="Listing 10-2: An algorithm to render a scene that can contain multiple instances of several objects, each in a different position" data-label="lst:render_instance">RenderScene() {
+    for I in scene.instances {
+        RenderInstance(I);
+    }
+}
+
+RenderInstance(instance) {
+    projected = []
+    model = instance.model
+    for V in model.vertices {
+        V' = V + instance.position
+        projected.append(ProjectVertex(V'))
+    }
+    for T in model.triangles {
+        RenderTriangle(T, projected)
+    }
+}</pre><figcaption class="code_caption">Listing 10-2: An algorithm to render a scene that can contain multiple instances of several objects, each in a different position</figcaption>
+<p>If we want this to work as expected, the coordinates of the vertices on the model should be defined in a coordinate system that “makes sense” for the object; we’ll call this coordinate system <em>model space</em>. For example, we defined our cube such that its center was (0, 0, 0); this means that when we say “a cube located at (1, 2, 3),” we mean “a cube centered around (1, 2, 3).”</p>
+<p>After applying the instance translation to the vertices defined in model space, the transformed vertices are now expressed in the coordinate system of the scene; we’ll call this coordinate system <em>world space</em>.</p>
+<p>There are no hard and fast rules to define a model space; it depends on the needs of your application. For example, if you have the model of a person, it might be sensible to place the origin of the coordinate system at their feet.</p>
+<p>Figure 10-3 shows a simple scene with two instances of our cube.</p>
+<figure>
+<img alt="Figure 10-3: A scene with two instances of the same cube model, placed in different positions" id="fig:two_cubes" src="images/raster-07.png"/><figcaption aria-hidden="true">Figure 10-3: A scene with two instances of the same cube model, placed in different positions</figcaption>
+</figure>
+<p><a class="cgfs_demo" href="https://gabrielgambetta.com/cgfs/instances-demo">Source code and live demo &gt;&gt;</a></p>
+<h2 id="model-transform"><a href="10-describing-and-rendering-a-scene.html#model-transform">Model Transform</a></h2>
+<p>The scene definition we described above doesn’t give us a lot of flexibility. Since we can only specify the <em>position</em> of a cube, we could instantiate as many cubes as we wanted, but they would all be facing the same direction. In general, we want to have more control over the instances: we also want to specify their orientation and possibly their scale.</p>
+<p>Conceptually, we can define a <em>model transform</em> with these three elements: a scaling factor, a rotation around the origin in model space, and a translation to a specific point in the scene:</p>
+<pre>instance {
+    model = cube
+    transform {
+        scale = 1.5
+        rotation = &lt;45 degrees around the Y axis&gt;
+        translation = (1, 2, 3)
+    }
+}</pre>
+<p>We can extend the algorithm in Listing 10-2 to accommodate the new transforms. However, the order in which we <em>apply</em> the transforms is important; in particular, the translation must be done last. This is because most of the time we want to rotate and scale the instances around their origin in model space, so we need to do that before they’re transformed into world space.</p>
+<p>To understand the difference in the results, take a look at Figure 10-4, which shows a <span class="math inline">\(45^\circ\)</span> rotation around the origin followed by a translation along the Z axis.</p>
+<figure>
+<img alt="Figure 10-4: Applying rotation and then translation" id="fig:cube_rotate_translate" src="images/r13-rotate-translate.png"/><figcaption aria-hidden="true">Figure 10-4: Applying rotation and then translation</figcaption>
+</figure>
+<p>Figure 10-5 shows the translation applied before the rotation</p>
+<figure>
+<img alt="Figure 10-5: Applying translation and then rotation" id="fig:cube_translate_rotate" src="images/r13-translate-rotate.png"/><figcaption aria-hidden="true">Figure 10-5: Applying translation and then rotation</figcaption>
+</figure>
+<p>Strictly speaking, given a rotation followed by a translation, we can find a translation followed by a rotation (perhaps not around the origin) that achieves the same result. However, it’s far more natural to express this kind of transform using the first form.</p>
+<p>We can write a new version of <code>RenderInstance</code> that supports scale, rotation, and position:</p>
+<pre data-caption="Listing 10-3: An algorithm to render a scene that can contain multiple instances of several objects, each with a different transform" data-label="lst: render_instance_generic">RenderInstance(instance) {
+    projected = []
+    model = instance.model
+    for V in model.vertices {
+        V' = ApplyTransform(V, instance.transform)
+        projected.append(ProjectVertex(V'))
+    }
+    for T in model.triangles {
+        RenderTriangle(T, projected)
+    }
+}</pre><figcaption class="code_caption">Listing 10-3: An algorithm to render a scene that can contain multiple instances of several objects, each with a different transform</figcaption>
+<p>The <code>ApplyTransform</code> method looks like this:</p>
+<pre data-caption="Listing 10-4: A function that applies transforms to a vertex in the correct order" data-label="lst:apply_transform">ApplyTransform(vertex, transform) {
+    scaled = Scale(vertex, transform.scale)
+    rotated = Rotate(scaled, transform.rotation)
+    translated = Translate(rotated, transform.translation)
+    return translated
+}</pre><figcaption class="code_caption">Listing 10-4: A function that applies transforms to a vertex in the correct order</figcaption>
+<h2 id="camera-transform"><a href="10-describing-and-rendering-a-scene.html#camera-transform">Camera Transform</a></h2>
+<p>The previous sections explored how we can position instances of models at different points in the scene. In this section, we’ll explore how to move and rotate the camera within the scene.</p>
+<p>Imagine you’re a camera floating in the middle of a completely empty coordinate system. Suddenly, a red cube appears exactly in front of you (Figure 10-6).</p>
+<figure>
+<img alt="Figure 10-6: A red cube appears in front of the camera." id="fig:cm_redcube_1" src="images/camera-movement-redcube-1.png"/><figcaption aria-hidden="true">Figure 10-6: A red cube appears in front of the camera.</figcaption>
+</figure>
+<p>A second later, the cube moves 1 unit toward you (Figure 10-7).</p>
+<figure>
+<img alt="Figure 10-7: The red cube moves toward the camera . . . or does it?" id="fig:cm_redcube_2" src="images/camera-movement-redcube-2.png"/><figcaption aria-hidden="true">Figure 10-7: The red cube moves toward the camera . . . or does it?</figcaption>
+</figure>
+<p>But did the cube really move 1 unit toward you? Or did you move 1 unit toward the cube? Since there are no points of reference at all, and the coordinate system isn’t visible, there’s no way to tell just by looking at what you see, because the <em>relative</em> position of the cube and the camera are identical in both cases (Figure 10-8).</p>
+<figure>
+<img alt="Figure 10-8: Without the coordinate system, we can’t tell whether it was the object or the camera that moved." id="fig:relative_translation" src="images/camera-movement-1.png"/><figcaption aria-hidden="true">Figure 10-8: Without the coordinate system, we can’t tell whether it was the object or the camera that moved.</figcaption>
+</figure>
+<p>Now the cube rotates around you <span class="math inline">\(45^\circ\)</span> clockwise. Or does it? Maybe it was you who rotated <span class="math inline">\(45^\circ\)</span> counterclockwise? Again, there’s no way to tell (Figure 10-9).</p>
+<figure>
+<img alt="Figure 10-9: Without the coordinate system, we can’t tell whether it was the object or the camera that rotated." id="fig:relative_rotation" src="images/camera-movement-2.png"/><figcaption aria-hidden="true">Figure 10-9: Without the coordinate system, we can’t tell whether it was the object or the camera that rotated.</figcaption>
+</figure>
+<p>What this thought experiment shows is that there’s no difference between moving the camera around a fixed scene and keeping the camera fixed while rotating and translating the scene around it!</p>
+<p>The advantage of this clearly self-centered vision of the universe is that by keeping the camera fixed at the origin and pointing at <span class="math inline">\(\vec{Z_+}\)</span>, we can use the projection equations derived in the previous chapter without any modification. The coordinate system of the camera is called the <em>camera space</em>.</p>
+<p>Let’s assume the camera also has a transform attached to it, consisting of translation and rotation. In order to render the scene from the point of view of the camera, we need to apply the <em>opposite</em> transforms to each vertex of the scene:</p>
+<p><span class="math display">\[V_{translated} = V_{scene} - camera.translation\]</span> <span class="math display">\[V_{cam\_space} = inverse(camera.rotation) \cdot V_{translated}\]</span> <span class="math display">\[V_{projected} = perspective\_projection(V_{cam\_space})\]</span></p>
+<p>Note that we represent rotations using rotation matrices. Please refer to Appendix  <a data-reference="ch:linear_algebra_appendix" data-reference-type="ref" href="10-describing-and-rendering-a-scene.html#ch:linear_algebra_appendix">[ch:linear_algebra_appendix]</a> for more details about this.</p>
+<h2 id="the-transform-matrix"><a href="10-describing-and-rendering-a-scene.html#the-transform-matrix">The Transform Matrix</a></h2>
+<p>Now that we can move both the camera and the instances around the scene, let’s take a step back and consider everything that happens to a vertex <span class="math inline">\(V_{model}\)</span> in model space until it’s projected into the canvas point <span class="math inline">\((cx, cy)\)</span>.</p>
+<p>We first apply the model transform to go from model space to world space:</p>
+<p><span class="math display">\[V_{model\_scaled} = instance.scale \cdot V_{model}\]</span> <span class="math display">\[V_{model\_rotated} = instance.rotation \cdot V_{model\_scaled}\]</span> <span class="math display">\[V_{world} = V_{model\_rotated} + instance.translation\]</span></p>
+<p>Then we apply the camera transform to go from world space to camera space:</p>
+<p><span class="math display">\[V_{translated} = V_{world} - camera.translation\]</span> <span class="math display">\[V_{camera} = inverse(camera.rotation) \cdot V_{translated}\]</span></p>
+<p>Next, we apply the perspective equations to get viewport coordinates:</p>
+<p><span class="math display">\[v_x = {{V_{camera}x  \cdot  d} \over {V_{camera}z}}\]</span> <span class="math display">\[v_y = {{V_{camera}y  \cdot  d} \over {V_{camera}z}}\]</span></p>
+<p>And finally we map the viewport coordinates to canvas coordinates:</p>
+<p><span class="math display">\[c_x = {{v_x  \cdot  c_w} \over {v_w}}\]</span> <span class="math display">\[c_y = {{v_y  \cdot  c_h} \over {v_h}}\]</span></p>
+<p>As you can see, it’s a lot of computation and a lot of intermediate values for each vertex. Wouldn’t it be nice if we could reduce all of that to a more compact and efficient form?</p>
+<p>Let’s express the transforms as functions that take a vertex and return a transformed vertex. Let <span class="math inline">\(C_T\)</span> and <span class="math inline">\(C_R\)</span> be the camera translation and rotation; <span class="math inline">\(I_R\)</span>, <span class="math inline">\(I_S\)</span>, and <span class="math inline">\(I_T\)</span> the instance rotation, scale, and translation; <span class="math inline">\(P\)</span> the perspective projection; and <span class="math inline">\(M\)</span> the viewport-to-canvas mapping. If <span class="math inline">\(V\)</span> is the original vertex and <span class="math inline">\(V\, '\)</span> is the point on the canvas, we can express all the equations above like this:</p>
+<p><span class="math display">\[V\, ' = M(P(C_R^{-1}(C_T^{-1}(I_T(I_R(I_S(V)))))))\]</span></p>
+<p>Ideally, we’d like a single transform <span class="math inline">\(F\)</span> that does whatever the series of original transforms does, but that has a much simpler expression:</p>
+<p><span class="math display">\[F = M \cdot P \cdot C_R^{-1} \cdot C_T^{-1} \cdot I_T \cdot I_R \cdot I_S\]</span> <span class="math display">\[V\, ' = F(V)\]</span></p>
+<p>Finding a simple way to represent <span class="math inline">\(F\)</span> isn’t trivial. Our main obstacle is that we express each transform in a different way: we express translation as the sum of a point and a vector, rotation as the multiplication of a matrix and a point, scaling as the multiplication of a real number and a point, and perspective projection as real number multiplications and divisions. But if we could express all the transforms in the same way, and if such a way had a mechanism to compose transforms, we’d get the simple transform we want.</p>
+<h2 id="homogeneous-coordinates"><a href="10-describing-and-rendering-a-scene.html#homogeneous-coordinates">Homogeneous Coordinates</a></h2>
+<p>Consider the expression <span class="math inline">\(A = (1, 2, 3)\)</span>. Does <span class="math inline">\(A\)</span> represent a 3D point or a 3D vector? If we don’t know the context in which <span class="math inline">\(A\)</span> is used, there’s no way to know.</p>
+<p>But let’s add a fourth value, called <span class="math inline">\(w\)</span>, to mark <span class="math inline">\(A\)</span> as a point or a vector. If <span class="math inline">\(w = 0\)</span>, it’s a vector; if <span class="math inline">\(w = 1\)</span>, it’s a point. So the point <span class="math inline">\(A\)</span> is unambiguously represented as <span class="math inline">\(A = (1, 2, 3, 1)\)</span> and the vector <span class="math inline">\(\vec{A}\)</span> is represented as <span class="math inline">\((1, 2, 3, 0)\)</span>.</p>
+<p>Since points and vectors share the same representation, these four-component coordinates are called <em>homogeneous coordinates</em>. Homogeneous coordinates have a far deeper and far more involved geometric interpretation, but that’s outside the scope of this book; here, we’ll just use them as a convenient tool.</p>
+<p>Manipulating points and vectors expressed in homogeneous coordinates is compatible with their geometric interpretation. For example, subtracting two points produces a vector:</p>
+<p><span class="math display">\[(8, 4, 2, 1) - (3, 2, 1, 1) = (5, 2, 1, 0)\]</span></p>
+<p>Adding two vectors produces another vector:</p>
+<p><span class="math display">\[(0, 0, 1, 0) + (1, 0, 0, 0) = (1, 0, 1, 0)\]</span></p>
+<p>In the same way, it’s easy to see that adding a point and a vector produces a point, multiplying a vector by a scalar produces a vector, and so on, just as we expect.</p>
+<p>So what do coordinates with a <span class="math inline">\(w\)</span> value other than <span class="math inline">\(0\)</span> or <span class="math inline">\(1\)</span> represent? They also represent points. In fact, any point in 3D has an infinite number of representations in homogeneous coordinates. What matters is the <em>ratio</em> between the coordinates and the <span class="math inline">\(w\)</span> value. For example, <span class="math inline">\((1, 2, 3, 1)\)</span> and <span class="math inline">\((2, 4, 6, 2)\)</span> represent the same point, as does <span class="math inline">\((-3, -6, -9, -3)\)</span>.</p>
+<p>Of all of these representations, we call the one with <span class="math inline">\(w = 1\)</span> the <em>canonical representation</em> of the point in homogeneous coordinates; converting any other representation to its canonical representation or to its Cartesian coordinates is trivial:</p>
+<p><span class="math display">\[\begin{pmatrix} x \\ y \\ z \\ w \end{pmatrix} = \begin{pmatrix} x \over w \\[6pt] y  \over w \\[6pt] z \over w \\[6pt] 1 \end{pmatrix} \rightarrow \begin{pmatrix} x \over w \\[6pt] y  \over w \\[6pt] z \over w \end{pmatrix}\]</span></p>
+<p>So we can convert Cartesian coordinates to homogeneous coordinates, and back to Cartesian coordinates. But how does this help us find a single representation for all the transforms?</p>
+<h3 id="homogeneous-rotation-matrix"><a href="10-describing-and-rendering-a-scene.html#homogeneous-rotation-matrix">Homogeneous Rotation Matrix</a></h3>
+<p>Let’s begin with a rotation matrix. Converting a <span class="math inline">\(3 \times 3\)</span> rotation matrix in Cartesian coordinates to a <span class="math inline">\(4 \times 4\)</span> rotation matrix in homogeneous coordinates is trivial; since the <span class="math inline">\(w\)</span> coordinate of the point shouldn’t change, we add a column to the right, a row to the bottom, fill them with zeros, and place a <span class="math inline">\(1\)</span> in the lower-right element to keep the value of <span class="math inline">\(w\)</span>:</p>
+<p><span class="math display">\[\begin{pmatrix}
+A &amp; B &amp; C \\
+D &amp; E &amp; F \\
+G &amp; H &amp; I
+\end{pmatrix}
+\cdot
+\begin{pmatrix} x \\ y \\ z \end{pmatrix}
+=
+\begin{pmatrix} x' \\ y' \\ z' \end{pmatrix}
+\rightarrow
+\begin{pmatrix}
+A &amp; B &amp; C &amp; 0 \\
+D &amp; E &amp; F &amp; 0 \\
+G &amp; H &amp; I &amp; 0 \\
+0 &amp; 0 &amp; 0 &amp; 1
+\end{pmatrix}
+\cdot
+\begin{pmatrix} x \\ y \\ z \\ 1 \end{pmatrix}
+=
+\begin{pmatrix} x' \\ y' \\ z' \\ 1 \end{pmatrix}\]</span></p>
+<h3 id="homogeneous-scale-matrix"><a href="10-describing-and-rendering-a-scene.html#homogeneous-scale-matrix">Homogeneous Scale Matrix</a></h3>
+<p>A scaling matrix is also trivial in homogeneous coordinates, and it’s constructed in the same way as the rotation matrix:</p>
+<p><span class="math display">\[\begin{pmatrix} S_x &amp; 0 &amp; 0 \\ 0 &amp; S_y &amp; 0 \\ 0 &amp; 0 &amp; S_z \end{pmatrix}  \cdot  \begin{pmatrix} x \\ y \\ z \end{pmatrix} = \begin{pmatrix} x \cdot S_x \\ y \cdot S_y \\ z \cdot S_z \end{pmatrix} \rightarrow \begin{pmatrix} S_x &amp; 0 &amp; 0 &amp; 0 \\ 0 &amp; S_y &amp; 0 &amp; 0 \\ 0 &amp; 0 &amp; S_z &amp; 0 \\ 0 &amp; 0 &amp; 0 &amp; 1 \end{pmatrix}  \cdot  \begin{pmatrix} x \\ y \\ z \\ 1 \end{pmatrix} = \begin{pmatrix} x \cdot S_x \\ y \cdot S_y \\ z \cdot S_z \\ 1 \end{pmatrix}\]</span></p>
+<h3 id="homogeneous-translation-matrix"><a href="10-describing-and-rendering-a-scene.html#homogeneous-translation-matrix">Homogeneous Translation Matrix</a></h3>
+<p>The rotation and scale matrices were easy; they were already expressed as matrix multiplications in Cartesian coordinates, we just had to add a <span class="math inline">\(1\)</span> to preserve the <span class="math inline">\(w\)</span> coordinate. But what can we do with a translation, which we had expressed as an addition in Cartesian coordinates?</p>
+<p>We’re looking for a <span class="math inline">\(4 \times 4\)</span> matrix such that</p>
+<p><span class="math display">\[\begin{pmatrix} T_x \\ T_y \\ T_z \\ 0 \end{pmatrix} + \begin{pmatrix} x \\ y \\ z \\ 1 \end{pmatrix} = \begin{pmatrix} A &amp; B &amp; C &amp; D \\ E &amp; F &amp; G &amp; H \\ I &amp; J &amp; K &amp; L \\ M &amp; N &amp; O &amp; P \end{pmatrix}  \cdot  \begin{pmatrix} x \\ y \\ z \\ 1 \end{pmatrix} = \begin{pmatrix} x + T_x \\ y + T_y \\ z + T_z \\ 1 \end{pmatrix}\]</span></p>
+<p>Let’s focus on getting <span class="math inline">\(x + T_x\)</span> first. This value is the result of multiplying the first row of the matrix and the point—that is,</p>
+<p><span class="math display">\[\begin{pmatrix} A &amp; B &amp; C &amp; D \end{pmatrix}  \cdot  \begin{pmatrix} x \\ y \\ z \\ 1 \end{pmatrix} = x + T_x\]</span></p>
+<p>If we expand the vector multiplication, we get</p>
+<p><span class="math display">\[Ax + By + Cz + D = x + T_x\]</span></p>
+<p>From here we can deduce that <span class="math inline">\(A = 1\)</span>, <span class="math inline">\(B = C = 0\)</span>, and <span class="math inline">\(D = T_x\)</span>.</p>
+<p>Following a similar reasoning for the rest of the coordinates, we arrive at the following matrix expression for the translation:</p>
+<p><span class="math display">\[\begin{pmatrix} T_x \\ T_y \\ T_z \\ 0 \end{pmatrix} + \begin{pmatrix} x \\ y \\ z \\ 1 \end{pmatrix} = \begin{pmatrix} 1 &amp; 0 &amp; 0 &amp; T_x \\ 0 &amp; 1 &amp; 0 &amp; T_y \\ 0 &amp; 0 &amp; 1 &amp; T_z \\ 0 &amp; 0 &amp; 0 &amp; 1 \end{pmatrix}  \cdot  \begin{pmatrix} x \\ y \\ z \\ 1 \end{pmatrix} = \begin{pmatrix} x + T_x \\ y + T_y \\ z + T_z \\ 1 \end{pmatrix}\]</span></p>
+<h3 id="homogeneous-projection-matrix"><a href="10-describing-and-rendering-a-scene.html#homogeneous-projection-matrix">Homogeneous Projection Matrix</a></h3>
+<p>Sums and multiplications are easy to express as multiplications of matrices and vectors because they involve, after all, sums and multiplications. But the perspective projection equations have a division by <span class="math inline">\(z\)</span>. How can we express that?</p>
+<p>You may be tempted to think that dividing by <span class="math inline">\(z\)</span> is the same as multiplying by <span class="math inline">\(1/z\)</span>, and you may want to solve this problem by putting <span class="math inline">\(1/z\)</span> in the matrix. However, <em>which</em> <span class="math inline">\(z\)</span> coordinate would we put there? We want this projection matrix to work for <em>every</em> input point, so hardcoding the <span class="math inline">\(z\)</span> coordinate of <em>any</em> point would not give us what we want.</p>
+<p>Fortunately, homogeneous coordinates do have one instance of a division: the division by the <span class="math inline">\(w\)</span> coordinate when converting back to Cartesian coordinates. If we can manage to make the <span class="math inline">\(z\)</span> coordinate of the original point appear as the <span class="math inline">\(w\)</span> coordinate of the “projected” point, we’ll get the projected <span class="math inline">\(x\)</span> and <span class="math inline">\(y\)</span> once we convert the point back to Cartesian coordinates:</p>
+<p><span class="math display">\[\begin{pmatrix} A &amp; B &amp; C &amp; D \\ E &amp; F &amp; G &amp; H \\ I &amp; J &amp; K &amp; L \end{pmatrix}  \cdot  \begin{pmatrix} x \\ y \\ z \\ 1 \end{pmatrix} = \begin{pmatrix} x \cdot d \\ y \cdot d \\ z \end{pmatrix} \rightarrow \begin{pmatrix} x \cdot d \over z \\[6pt] y \cdot d  \over z \end{pmatrix}\]</span></p>
+<p>Note that this matrix is <span class="math inline">\(3 \times 4\)</span>; it can be multiplied by a four-element vector (the transformed 3D point in homogeneous coordinates) and it will yield a three-element vector (the projected 2D point in homogeneous coordinates), which is then converted to 2D Cartesian coordinates by dividing by <span class="math inline">\(w\)</span>. This gives us exactly the values of <span class="math inline">\(x'\)</span> and <span class="math inline">\(y'\)</span> we were looking for. The missing element here is <span class="math inline">\(z'\)</span>, which we know is equal to <span class="math inline">\(d\)</span> by definition.</p>
+<p>Applying the same reasoning we used to deduce the translation matrix, we can express the perspective projection as follows:</p>
+<p><span class="math display">\[\begin{pmatrix} d &amp; 0 &amp; 0 &amp; 0 \\ 0 &amp; d &amp; 0 &amp; 0 \\ 0 &amp; 0 &amp; 1 &amp; 0 \end{pmatrix}  \cdot  \begin{pmatrix} x \\ y \\ z \\ 1 \end{pmatrix} = \begin{pmatrix} x \cdot d \\ y \cdot d \\ z \end{pmatrix} \rightarrow \begin{pmatrix} x \cdot d \over z \\[6pt] y \cdot d  \over z  \end{pmatrix}\]</span></p>
+<h3 id="homogeneous-viewport-to-canvas-matrix"><a href="10-describing-and-rendering-a-scene.html#homogeneous-viewport-to-canvas-matrix">Homogeneous Viewport-to-Canvas Matrix</a></h3>
+<p>The last step is mapping the projected point on the viewport to the canvas. This is just a 2D scaling transform with <span class="math inline">\(S_x = {c_w \over v_w}\)</span> and <span class="math inline">\(S_y = {c_h \over v_h}\)</span>. This matrix is thus</p>
+<p><span class="math display">\[\begin{pmatrix} c_w \over v_w &amp; 0 &amp; 0 \\ 0 &amp; c_h \over v_h &amp; 0 \\ 0 &amp; 0 &amp; 1 \end{pmatrix}  \cdot  \begin{pmatrix} x \\ y \\ z \end{pmatrix} = \begin{pmatrix} x \cdot c_w \over v_w \\[6pt] y \cdot c_h \over v_h \\[6pt] z \end{pmatrix}\]</span></p>
+<p>In fact, it’s easy to combine this with the projection matrix to get a simple 3D-to-canvas matrix:</p>
+<p><span class="math display">\[\begin{pmatrix} d \cdot cw \over vw &amp; 0 &amp; 0 &amp; 0 \\ 0 &amp; d \cdot ch \over vh &amp; 0 &amp; 0 \\ 0 &amp; 0 &amp; 1 &amp; 0 \end{pmatrix}  \cdot  \begin{pmatrix} x \\ y \\ z \\ 1 \end{pmatrix} = \begin{pmatrix} x \cdot d \cdot cw \over vw \\[6pt] y \cdot d \cdot ch \over vh \\[6pt] z \end{pmatrix} \rightarrow \begin{pmatrix} ({x \cdot d \over z})({cw \over vw}) \\[6pt] ({y \cdot d  \over z})({ch \over vh})  \end{pmatrix}\]</span></p>
+<h2 id="the-transform-matrix-revisited"><a href="10-describing-and-rendering-a-scene.html#the-transform-matrix-revisited">The Transform Matrix Revisited</a></h2>
+<p>After all this work, we can express every transform we need to convert a model vertex <span class="math inline">\(V\)</span> into a canvas pixel <span class="math inline">\(V\, '\)</span> as a matrix. Moreover, we can compose these transforms by multiplying their corresponding matrices. So we can express the whole sequence of transforms as a single matrix:</p>
+<p><span class="math display">\[F = M \cdot P \cdot C_R^{-1} \cdot C_T^{-1} \cdot I_T \cdot I_R \cdot I_S\]</span></p>
+<p>Now transforming a vertex is just a matter of computing the following matrix-by-point multiplication:</p>
+<p><span class="math display">\[V\, ' = F \cdot V\]</span></p>
+<p>Furthermore, we can decompose the transform into three parts:</p>
+<p><span class="math display">\[M_{Projection} = M \cdot P\]</span> <span class="math display">\[M_{Camera} = C_R^{-1} \cdot C_T^{-1}\]</span> <span class="math display">\[M_{Model} = I_T \cdot I_R \cdot I_S\]</span> <span class="math display">\[F = M_{Projection} \cdot M_{Camera} \cdot M_{Model}\]</span></p>
+<p>These matrices don’t need to be computed from scratch for every vertex (that’s the point of using a matrix after all). Because matrix multiplication is associative, we can reuse the parts of the expression that don’t change.</p>
+<p><span class="math inline">\(M_{Projection}\)</span> should rarely change; it only depends on the size of the viewport and the size of the canvas. The size of the canvas changes when, for example, the application goes from windowed to fullscreen. The size of the viewport would only change if the field of view of the camera changes; this doesn’t happen very often.</p>
+<p><span class="math inline">\(M_{Camera}\)</span> may change every frame; it depends on the camera position and orientation, so if the camera is moving or turning, it needs to be recomputed. Once computed, though, it remains constant for every object drawn in the frame, so it would be computed at most once per frame.</p>
+<p><span class="math inline">\(M_{Model}\)</span> will be different for each instance in the scene; however, it will remain constant over time for instances that don’t move (for example, trees and buildings), so it can be computed once and stored in the scene itself. For objects that do move (for example, cars in a racing game) it needs to be computed every time they move (which is likely to be every frame).</p>
+<p>A very high level of the scene rendering pseudocode would look like Listing 10-5.</p>
+<pre data-caption="Listing 10-5: An algorithm to render a scene using transform matrices" data-label="lst:render_scene">RenderModel(model, transform) {
+    projected = []
+    for V in model.vertices {
+        projected.append(ProjectVertex(transform * V))
+    }
+    for T in model.triangles {
+        RenderTriangle(T, projected)
+    }
+}
+
+RenderScene() {
+    M_camera = MakeCameraMatrix(camera.position, camera.orientation)
+
+    for I in scene.instances {
+        M = M_camera * I.transform
+        RenderModel(I.model, M)
+    }
+}</pre><figcaption class="code_caption">Listing 10-5: An algorithm to render a scene using transform matrices</figcaption>
+<p>We can now draw a scene containing several instances of different models, possibly moving around and rotating, and we can move the camera throughout the scene. Figure 10-10 shows two instances of our cube model, each with a different transform (including translation and rotation), rendered from a translated and rotated camera.</p>
+<figure>
+<img alt="Figure 10-10: A scene with two instances of the same cube model, having different instance transforms, and a transformed camera" id="fig:raster08" src="images/raster-08.png"/><figcaption aria-hidden="true">Figure 10-10: A scene with two instances of the same cube model, having different instance transforms, and a transformed camera</figcaption>
+</figure>
+<p><a class="cgfs_demo" href="https://gabrielgambetta.com/cgfs/transforms-demo">Source code and live demo &gt;&gt;</a></p>
+<h2 id="summary"><a href="10-describing-and-rendering-a-scene.html#summary">Summary</a></h2>
+<p>We covered a lot of ground in this chapter. We first explored how to represent models made out of triangles. Then we figured out how to apply the perspective projection equation we derived in the previous chapter to entire models, so we can go from an abstract 3D model to its representation on the screen.</p>
+<p>Next we developed a way to have multiple instances of the same model in the scene without having multiple copies of the model itself. Then we found out how to lift one of the limitations we had been working with so far: our camera no longer needs to be fixed at the origin of the coordinate system or pointing toward <span class="math inline">\(\vec{Z+}\)</span>.</p>
+<p>Finally, we explored how to represent all the transforms we need to apply to a vertex as matrix multiplications in homogeneous coordinates, and this allowed us to reduce the computations required to render a scene by condensing many of the consecutive transforms into just three matrices: one for the perspective projection and viewport-to-canvas mapping, one for the instance transform, and one for the camera transform.</p>
+<p>This has given us a lot of flexibility in terms of what we can represent in a scene, and it also allows us to move the camera around the scene. But we still have two important limitations. First, moving the camera means we can end up with objects behind it, which causes all sorts of problems. Second, the rendering doesn’t look so great: it’s still a wireframe image.</p>
+<p>Note that for practical reasons we won’t be using the full projection matrix in the rest of this book. Instead, we’ll use the model and camera transforms separately and then convert their results back to Cartesian coordinates as follows:</p>
+<p><span class="math display">\[x' = {x \cdot d \cdot cw \over z \cdot vw}\]</span></p>
+<p><span class="math display">\[y' = {y \cdot d \cdot ch \over z \cdot vh}\]</span></p>
+<p>This lets us do some more operations in 3D that can’t be expressed as matrix transforms before we project the points.</p>
+<p>In the next chapter, we’ll deal with objects that shouldn’t be visible, and then we’ll spend the rest of this book making the rendered objects look better.</p>
+<div class="cgfs-buy">
+Found this interesting? <br/> <b>Buy the book from <a href="https://nostarch.com/computer-graphics-scratch">No Starch Press</a> or <a href="https://www.amazon.com/Computer-Graphics-Scratch-Gabriel-Gambetta/dp/1718500769">Amazon</a>. </b>
+</div>
+<div class="centered">
+<b><a href="09-perspective-projection.html">&lt;&lt; Perspective Projection</a> | <a href="11-clipping.html">Clipping &gt;&gt;</a></b>
+</div>
+<div class="cgfs_navbar">
+<b>Computer Graphics From Scratch</b> · <a href="dedication.html">Dedication</a> | <a href="acknowledgements.html">Acknowledgements</a> | <a href="index.html">Table of Contents</a> | <a href="00-introduction.html">Introduction</a> | <a href="01-common-concepts.html">Introductory Concepts</a><br/><b>Part I: Raytracing</b> · <a href="02-basic-raytracing.html">Basic Raytracing</a> | <a href="03-light.html">Light</a> | <a href="04-shadows-and-reflections.html">Shadows and Reflections</a> | <a href="05-extending-the-raytracer.html">Extending the Raytracer</a><br/><b>Part II: Rasterization</b> · <a href="06-lines.html">Lines</a> | <a href="07-filled-triangles.html">Filled Triangles</a> | <a href="08-shaded-triangles.html">Shaded Triangles</a> | <a href="09-perspective-projection.html">Perspective Projection</a> | Describing and Rendering a Scene | <a href="11-clipping.html">Clipping</a> | <a href="12-hidden-surface-removal.html">Hidden Surface Removal</a> | <a href="13-shading.html">Shading</a> | <a href="14-textures.html">Textures</a> | <a href="15-extending-the-rasterizer.html">Extending the Rasterizer</a><br/><b>Appendixes</b> · <a href="A0-linear-algebra.html">Linear Algebra</a> | <a href="afterword.html">Afterword</a>
+</div>
+<div class="signup" id="signup">
+</div>
+<script>$("#signup").load("/signup.php?m=cgfs&r=10-describing-and-rendering-a-scene");</script>
+</div>
+<div class="copyright">© Gabriel Gambetta 2026</div>
+</body>
+</html>

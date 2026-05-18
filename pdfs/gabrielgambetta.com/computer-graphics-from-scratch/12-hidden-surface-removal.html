@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html class="cgfs" lang="en" xml:lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, user-scalable=yes" name="viewport"/>
+<title>Hidden Surface Removal - Computer Graphics from Scratch - Gabriel Gambetta</title>
+<style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+</style>
+<link href="../css/style.css" rel="stylesheet"/>
+<!--[if lt IE 9]>
+<script src="//cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv-printshiv.min.js"></script>
+<![endif]-->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.2/MathJax.js?config=TeX-AMS-MML_HTMLorMML" type="text/javascript"></script>
+<script src="../js/jquery-3.2.1.min.js"></script>
+<!-- Google tag (gtag.js) -->
+<script async="" src="https://www.googletagmanager.com/gtag/js?id=G-M38VSQ9GME"></script>
+<script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-M38VSQ9GME');
+</script>
+</head>
+<body>
+<div class="main">
+<div class="nav">
+<a href="index.html">&lt;&lt; Computer Graphics from Scratch</a> <a class="homelink" href="https://gabrielgambetta.com/index.html">Gabriel Gambetta</a>
+</div>
+<div style="clear:both;"></div>
+<h1 id="ch:hidden_surface_removal">Hidden Surface Removal</h1>
+<p>We can now render any scene from any point of view, but the resulting image is visually simple: we’re rendering objects in wireframe, giving the impression that we’re looking at the blueprint of a set of objects, not at the objects themselves.</p>
+<p>The remaining chapters of this book focus on improving the visual quality of the rendered scene. By the end of this chapter, we’ll be able to render objects that look solid (as opposed to wireframe). We already developed an algorithm to draw filled triangles, but as we will see, using that algorithm correctly in a 3D scene is not as simple as it might seem!</p>
+<h2 id="rendering-solid-objects"><a href="12-hidden-surface-removal.html#rendering-solid-objects">Rendering Solid Objects</a></h2>
+<p>The first idea that comes to mind when we want to make solid objects look solid is to use the function <code>DrawFilledTriangle</code> that we developed in <a href="07-filled-triangles.html">Chapter 7 (Filled Triangles)</a> to draw each triangle of the objects using a random color (Figure 12-1).</p>
+<figure>
+<img alt="Figure 12-1: Using DrawFilledTriangle instead of DrawWireframeTriangle doesn’t produce the results we expect." id="fig:raster_10" src="images/raster-10a.png"/><figcaption aria-hidden="true">Figure 12-1: Using <code>DrawFilledTriangle</code> instead of <code>DrawWireframeTriangle</code> doesn’t produce the results we expect.</figcaption>
+</figure>
+<p>The shapes in Figure 12-1 don’t quite look like cubes, do they? If you look closely, you’ll see what the problem is: parts of the back faces of the cube are drawn on top of the front faces! This is because we’re blindly drawing 2D triangles on the canvas in a “random order” or, more precisely, in the order they happen to be defined in the <code>Triangles</code> list of the model, without taking into account the spatial relationships between them.</p>
+<p>You might be tempted to go back to the model definition and change the order of the triangles to fix this problem. However, if our scene includes another instance of the cube that is rotated <span class="math inline">\(180^\circ\)</span>, we’d go back to the original problem. In short, there’s no single “correct” triangle order that will work for every instance and camera orientation. What should we do?</p>
+<h2 id="painters-algorithm"><a href="12-hidden-surface-removal.html#painters-algorithm">Painter’s Algorithm</a></h2>
+<p>A first solution to this problem is known as the <em>painter’s algorithm</em>. Real-life painters draw backgrounds first, and then cover parts of them with foreground objects. We could achieve the same effect by drawing all the triangles in the scene back to front. To do so, we’d apply the model and camera transforms and sort the triangles according to their distance to the camera.</p>
+<p>This works around the “no single correct order” problem explained above, because now we’re looking for a correct ordering for a specific relative position of the objects and the camera.</p>
+<p>Although this would indeed draw the triangles in the correct order, it has some drawbacks that make it impractical.</p>
+<p>First, it doesn’t scale well. The most efficient sorting algorithm known to humans is <span class="math inline">\(O(n \cdot \log(n))\)</span>, which means as we increase the size of the input, the runtime increases more than just proportionally (for example, if sorting 10 triangles requires approximately 33 operations, sorting 100 triangles requires 664 operations, not 330; and sorting 1000 triangles requires 9965 operations, not 3300!) In other words, this works for small scenes, but it quickly becomes a performance bottleneck as the complexity of the scene increases.</p>
+<p>Second, it requires us to know the whole list of triangles at once. This requires a lot of memory and stops us from using a stream-like approach to rendering. We want our renderer to be like a pipeline, where model triangles enter on one end and pixels come out the other end, but this algorithm doesn’t start drawing pixels until every triangle has been transformed and sorted.</p>
+<p>Third, even if we’d be willing to live with these limitations, there are cases where a correct ordering of triangles just <em>doesn’t exist at all</em>. Consider the case in Figure 12-2. We will <em>never</em> be able to sort these triangles in a way that produces the correct results.</p>
+<figure>
+<img alt="Figure 12-2: There is no way to sort these triangles “back-to-front.”" id="fig:impossible_sort" src="images/r15-impossible-sort.png"/><figcaption aria-hidden="true">Figure 12-2: There is no way to sort these triangles “back-to-front.”</figcaption>
+</figure>
+<h2 id="depth-buffering"><a href="12-hidden-surface-removal.html#depth-buffering">Depth Buffering</a></h2>
+<p>We can’t solve the ordering problem at the triangle level, so let’s try to solve it at the pixel level.</p>
+<p>For each pixel on the canvas, we want to paint it with the “correct” color, where the “correct” color is the color of the object that is closest to the camera. In Figure 12-3, that’s <span class="math inline">\(P_1\)</span>.</p>
+<figure>
+<img alt="Figure 12-3: Both P1 and P2 project to the same P ’ on the canvas. Because P1 is closer to the camera than P2, we want to paint P ’ the color of P1." id="fig:depth" src="images/r15-depth.png"/><figcaption aria-hidden="true">Figure 12-3: Both <em>P<sub>1</sub></em> and <em>P<sub>2</sub></em> project to the same <em>P ’</em> on the canvas. Because <em>P<sub>1</sub></em> is closer to the camera than <em>P<sub>2</sub></em>, we want to paint <em>P ’</em> the color of <em>P<sub>1</sub></em>.</figcaption>
+</figure>
+<p>At any time during rendering, each pixel on the canvas represents one point in the scene (before we draw anything, it represents a point infinitely far away). Suppose that for each pixel on the canvas, we kept the <span class="math inline">\(Z\)</span> coordinate of the point it currently represents. When we need to decide whether to paint a pixel with the color of an object, we will do it only if the <span class="math inline">\(Z\)</span> coordinate of the point we’re about to paint is smaller than the <span class="math inline">\(Z\)</span> coordinate of the point that is already there. This guarantees that a pixel representing a point in the scene is never drawn over by a pixel representing a point that is farther away from the camera.</p>
+<p>Let’s go back to Figure 12-3. Suppose that because of the order of the triangles in a model, we want to paint <span class="math inline">\(P_2\)</span> first and <span class="math inline">\(P_1\)</span> second. When we paint <span class="math inline">\(P_2\)</span>, the pixel is painted red, and its associated <span class="math inline">\(Z\)</span> value becomes <span class="math inline">\(Z_{P_2}\)</span>. Then we want to paint <span class="math inline">\(P_1\)</span>, and since <span class="math inline">\(Z_{P_2} &gt; Z_{P_1}\)</span>, we paint the pixel blue and we get the correct result.</p>
+<p>In this particular case, we’d have gotten the correct result regardless of the values of <span class="math inline">\(Z\)</span>, because the points happened to come in a convenient order. But what if we wanted to paint <span class="math inline">\(P_1\)</span> first and <span class="math inline">\(P_2\)</span> second? We first paint the pixel blue and store <span class="math inline">\(Z_{P_1}\)</span>; but when we want to paint <span class="math inline">\(P_2\)</span>, we see that <span class="math inline">\(Z_{P_2} &gt; Z_{P_1}\)</span>, so we <em>don’t</em> paint it—because if we did, <span class="math inline">\(P_1\)</span> would be covered by <span class="math inline">\(P_2\)</span>, which is farther away! We get a blue pixel again, which is the correct result.</p>
+<p>In terms of implementation, we need a buffer to store the <span class="math inline">\(Z\)</span> coordinate of every pixel on the canvas; we call this the <em>depth buffer</em>. It has the same dimensions as the canvas, but its elements are real numbers representing depth values, not pixels.</p>
+<p>But where do the <span class="math inline">\(Z\)</span> values come from? These should be the <span class="math inline">\(Z\)</span> values of the points after they’re transformed but before they’re perspective-projected. However, this only gives us <span class="math inline">\(Z\)</span> values for vertices; we need a <span class="math inline">\(Z\)</span> value for every pixel of every triangle.</p>
+<p>Here is yet another application of the attribute-mapping algorithm we developed in <a href="08-shaded-triangles.html">Chapter 8 (Shaded Triangles)</a>. Why not use <span class="math inline">\(Z\)</span> as the attribute and interpolate it across the face of the triangle, just like we did before with color-intensity values? By now you know how to do it: take the values of <code>z0</code>, <code>z1</code>, and <code>z2</code>; compute <code>z01</code>, <code>z02</code>, and <code>z012</code>; combine them to get <code>z_left</code> and <code>z_right</code>; then, for each horizontal segment, compute <code>z_segment</code>. Finally, instead of blindly calling <code>PutPixel(x, y, color)</code>, we do this:</p>
+<pre>z = z_segment[x - xl]
+if (z &lt; depth_buffer[x][y]) {
+    canvas.PutPixel(x, y, color)
+    depth_buffer[x][y] = z
+}</pre>
+<p>For this to work correctly, every entry in <code>depth_buffer</code> should be initialized to <span class="math inline">\(+\infty\)</span> (or just “a very big value”). This guarantees that the first time we want to draw a pixel, the condition will be true, because any point in the scene is closer to the camera than a point infinitely far away.</p>
+<p>The results we get now are much better—check out Figure 12-4.</p>
+<figure>
+<img alt="Figure 12-4: The cubes now look like cubes, regardless of the ordering of their triangles." id="fig:raster_10b" src="images/raster-10b.png"/><figcaption aria-hidden="true">Figure 12-4: The cubes now look like cubes, regardless of the ordering of their triangles.</figcaption>
+</figure>
+<p><a class="cgfs_demo" href="https://gabrielgambetta.com/cgfs/depth-demo">Source code and live demo &gt;&gt;</a></p>
+<h3 id="why-1z-instead-of-z"><a href="12-hidden-surface-removal.html#why-1z-instead-of-z">Using 1/Z instead of Z</a></h3>
+<p>The results look much better, but what we’re doing is subtly wrong. The values of <span class="math inline">\(Z\)</span> for the vertices are correct (they come from data, after all), but in most cases the linearly interpolated values of <span class="math inline">\(Z\)</span> for the rest of the pixels are incorrect. This might not even result in a visible difference at this point, but it would become an issue later.</p>
+<p>To see how the values are wrong, consider the simple case of a line segment from <span class="math inline">\(A (-1, 0, 2)\)</span> to <span class="math inline">\(B (1, 0, 10)\)</span>, with its midpoint <span class="math inline">\(M\)</span> at <span class="math inline">\((0, 0, 6)\)</span>. Specifically, because <span class="math inline">\(M\)</span> is the midpoint of <span class="math inline">\(AB\)</span>, we know that <span class="math inline">\(M_z = (A_z + B_z) / 2 = 6\)</span>. Figure 12-5 shows this line segment.</p>
+<figure>
+<img alt="Figure 12-5: A line segment AB and its midpoint M" id="fig:linear_z_1" src="images/r15-linear-z-1.png"/><figcaption aria-hidden="true">Figure 12-5: A line segment <em>AB</em> and its midpoint <em>M</em></figcaption>
+</figure>
+<p>Let’s compute the projection of these points with <span class="math inline">\(d = 1\)</span>. Applying the perspective projection equations, we get <span class="math inline">\(A\, '_x = A_x / A_z = -1 / 2 = -0.5\)</span>. Similarly, <span class="math inline">\(B\, '_x = 0.1\)</span> and <span class="math inline">\(M\, '_x = 0\)</span>. Figure 12-6 shows the projected points.</p>
+<figure>
+<img alt="Figure 12-6: The points A, B, and M projected onto the projection plane" id="fig:linear_z_2" src="images/r15-linear-z-2.png"/><figcaption aria-hidden="true">Figure 12-6: The points <em>A</em>, <em>B</em>, and <em>M</em> projected onto the projection plane</figcaption>
+</figure>
+<p><span class="math inline">\(A\, 'B\, '\)</span> is a horizontal segment on the viewport. We know the values of <span class="math inline">\(A_z\)</span> and <span class="math inline">\(B_z\)</span>. Let’s see what happens if we try to compute the value of <span class="math inline">\(M_z\)</span> using linear interpolation. The implied linear function looks like Figure 12-7.</p>
+<figure>
+<img alt="Figure 12-7: The values of Az and Bz for Ax’ and Bx’ define a linear function z = f(x’)." id="fig:linear_z" src="images/r15-linear-z.png"/><figcaption aria-hidden="true">Figure 12-7: The values of <em>A<sub>z</sub></em> and <em>B<sub>z</sub></em> for <em>A<sub>x’</sub></em> and <em>B<sub>x’</sub></em> define a linear function <em>z = f(x’)</em>.</figcaption>
+</figure>
+<p>The slope of the function is constant, so we can write</p>
+<p><span class="math display">\[{ M_z - A_z \over M\, '_x - A\, '_x } = { B_z - A_z \over B\, '_x - A\, '_x }\]</span></p>
+<p>We can manipulate that expression to solve for <span class="math inline">\(M_z\)</span>:</p>
+<p><span class="math display">\[M_z = A_z + (M\, '_x - A\, '_x) ({B_z - A_z \over B\, '_x - A\, '_x})\]</span></p>
+<p>If we plug in the values we know and do some arithmetic, we get</p>
+<p><span class="math display">\[M_z = 2 + (0 - (-0.5))({10 - 2 \over 0.1 - (-0.5)}) = 2 + (0.5)({8 \over 0.6}) = 8.666\]</span></p>
+<p>This says that the value of <span class="math inline">\(M_z\)</span> is <span class="math inline">\(8.666\)</span>, but we know for a fact it’s actually <span class="math inline">\(6\)</span>!</p>
+<p>Where did we go wrong? We’re using linear interpolation, which we know works well, and we’re feeding it the correct values, which come from data, so why is the result wrong?</p>
+<p>Our mistake is hidden in the implicit assumption we make when we use linear interpolation: that the function we are interpolating is linear to begin with! In this case, it turns out it isn’t.</p>
+<p>If <span class="math inline">\(Z = f(x', y')\)</span> was a linear function of <span class="math inline">\(x'\)</span> and <span class="math inline">\(y'\)</span>, we could write it as <span class="math inline">\(Z = Ax' + By' + C\)</span> for some values of <span class="math inline">\(A\)</span>, <span class="math inline">\(B\)</span>, and <span class="math inline">\(C\)</span>. This kind of function has the property that the difference of its value between two points depends on the difference between the points but not on the points themselves:</p>
+<p><span class="math display">\[f(x' + \Delta x, y' + \Delta y) - f(x', y') = [A (x' + \Delta x) + B  (y' + \Delta y) + C] - [A \cdot x' + B \cdot y' + C]\]</span> <span class="math display">\[= A (x' + \Delta x - x') + B (y' + \Delta y - y') + C - C\]</span> <span class="math display">\[= A \Delta x + B \Delta y\]</span></p>
+<p>That is, for a given difference in screen coordinates, the difference in <span class="math inline">\(Z\)</span> would always be the same.</p>
+<p>More formally, the equation of the plane that contains the line segment we’re studying is</p>
+<p><span class="math display">\[Ax + By + Cz + D = 0\]</span></p>
+<p>On the other hand we have the perspective projection equations:</p>
+<p><span class="math display">\[x' = {{x \cdot d} \over z}\]</span></p>
+<p><span class="math display">\[y' = {{y \cdot d} \over z}\]</span></p>
+<p>We can get <span class="math inline">\(x\)</span> and <span class="math inline">\(y\)</span> back from these:</p>
+<p><span class="math display">\[x = {{z \cdot x'} \over d}\]</span></p>
+<p><span class="math display">\[y = {{z \cdot y'} \over d}\]</span></p>
+<p>If we replace <span class="math inline">\(x\)</span> and <span class="math inline">\(y\)</span> in the plane equation with these expressions, we get</p>
+<p><span class="math display">\[{Ax'z + By'z \over d} + Cz + D = 0\]</span></p>
+<p>Multiplying by <span class="math inline">\(d\)</span> and then solving for <span class="math inline">\(z\)</span>,</p>
+<p><span class="math display">\[Ax'z + By'z + dCz + dD = 0\]</span></p>
+<p><span class="math display">\[(Ax' + By' + dC)z + dD = 0\]</span></p>
+<p><span class="math display">\[z = {-dD \over Ax' + By' + dC}\]</span></p>
+<p>This is clearly <em>not</em> a linear function of <span class="math inline">\(x'\)</span> and <span class="math inline">\(y'\)</span>, and this is why linearly interpolating values of <span class="math inline">\(z\)</span> gave us an incorrect result.</p>
+<p>However, if we compute <span class="math inline">\(1/z\)</span> instead of <span class="math inline">\(z\)</span>, we get</p>
+<p><span class="math display">\[1/z = {Ax' + By' + dC \over -dD}\]</span></p>
+<p>This clearly <em>is</em> a linear function of <span class="math inline">\(x'\)</span> and <span class="math inline">\(y'\)</span>. This means we could linearly interpolate values of <span class="math inline">\(1/z\)</span> and get the correct results.</p>
+<p>In order to verify that this works, let’s calculate the interpolated value for <span class="math inline">\(M_z\)</span>, but this time using the linear interpolation of <span class="math inline">\(1/z\)</span>:</p>
+<p><span class="math display">\[{ M_{1 \over z} - A_{1 \over z} \over M'_x - A'_x } = { B_{1 \over z} - A_{1 \over z} \over B'_x - A'_x }\]</span></p>
+<p><span class="math display">\[M_{1 \over z} = A_{1 \over z} + (M'_x - A'_x) ({B_{1 \over z} - A_{1 \over z} \over B'_x - A'_x})\]</span></p>
+<p><span class="math display">\[M_{1 \over z} = {1 \over 2} + (0 - (-0.5)) ({{1 \over 10} - {1 \over 2} \over 0.1 - (-0.5)}) = 0.166666\]</span></p>
+<p>And therefore</p>
+<p><span class="math display">\[M_z = {1 \over M_{1 \over z}} = {1 \over 0.166666} = 6\]</span></p>
+<p>This value is correct, in the sense that it matches our original calculation of <span class="math inline">\(M_z\)</span> based on the geometry of the line segment.</p>
+<p>All of this means we need to use values of <span class="math inline">\(1/z\)</span> instead of values of <span class="math inline">\(z\)</span> for depth buffering. The only practical differences in the pseudocode are that every entry in the buffer should be initialized to <span class="math inline">\(0\)</span> (which is conceptually <span class="math inline">\(1 / +\infty\)</span>), and that the comparison should be inverted (we keep the bigger value of <span class="math inline">\(1/z\)</span>, which corresponds to a smaller value of <span class="math inline">\(z\)</span>).</p>
+<h2 id="back-face-culling"><a href="12-hidden-surface-removal.html#back-face-culling">Back Face Culling</a></h2>
+<p>Depth buffering produces the desired results. But can we make things even faster?</p>
+<p>Going back to the cube, even if each pixel ends up having the right color, many of them are painted over several times. For example, if a back face of the cube is rendered before a front face, many pixels will be painted twice. This can be costly. So far we’ve been computing <span class="math inline">\(1/z\)</span> for every pixel, but soon we’ll add more attributes, such as illumination. As the number of per-pixel operations we need to perform increases, computing pixels that will never be visible becomes more and more wasteful.</p>
+<p>Can we discard pixels earlier, before we go into all of this computation? It turns out we can discard <em>entire triangles</em> before we even start rendering!</p>
+<p>So far we’ve been talking informally about <em>front faces</em> and <em>back faces</em>. Imagine every triangle has two distinct sides; it’s impossible to see both sides of a triangle at the same time. In order to distinguish between the two sides, we’ll stick an imaginary arrow on each triangle, perpendicular to its surface. Then we’ll take the cube and make sure every arrow is pointing out. Figure 12-8 shows this idea.</p>
+<figure>
+<img alt="Figure 12-8: A cube viewed from above, with arrows on each triangle pointing out" id="fig:cube_normals" src="images/r15-cube-normals.png"/><figcaption aria-hidden="true">Figure 12-8: A cube viewed from above, with arrows on each triangle pointing out</figcaption>
+</figure>
+<p>These arrows let us classify each triangle as “front” or “back,” depending on whether they point toward the camera or away from the camera. More formally, if the view vector and this arrow (which is actually a normal vector of the triangle) form an angle of less than <span class="math inline">\(90^\circ\)</span>, the triangle is front-facing; otherwise, it’s back-facing (Figure 12-9).</p>
+<figure>
+<img alt="Figure 12-9: The angle between the view vector and the normal vector of a triangle lets us classify it as front- facing or back-facing." id="fig:culling" src="images/r15-culling.png"/><figcaption aria-hidden="true">Figure 12-9: The angle between the view vector and the normal vector of a triangle lets us classify it as front- facing or back-facing.</figcaption>
+</figure>
+<p>At this point, we need to impose a restriction on our 3D models: that they are <em>closed</em>. The exact definition of closed is pretty involved, but fortunately an intuitive understanding is enough. The cube we’ve been working with is closed; we can only see its exterior. If we removed one of its faces, it wouldn’t be closed because we could see inside it. This doesn’t mean we can’t have objects with holes or concavities; we would just model these with thin “walls.” See Figure 12-10 for some examples.</p>
+<figure>
+<img alt="Figure 12-10: Some examples of open and closed objects" id="fig:closed-objects" src="images/r15-closed-objects.png"/><figcaption aria-hidden="true">Figure 12-10: Some examples of open and closed objects</figcaption>
+</figure>
+<p>Why impose this restriction? Closed objects have the interesting property that the set of front faces completely covers the set of back faces, no matter the orientation of the model or the camera. This means we don’t need to draw the back faces at all, saving valuable computation time.</p>
+<p>Since we can discard (cull) all the back faces, this algorithm is called <em>back face culling</em>. Its pseudocode is remarkably simple for an algorithm that can cut our rendering time by half!</p>
+<pre data-caption="Listing 12-1: The back face culling algorithm" data-label="lst:bfc_pseudocode">CullBackFaces(object, camera) {
+  for T in object.triangles {
+    if T is back-facing {
+      remove T from object.triangles
+    }
+  }
+}</pre><figcaption class="code_caption">Listing 12-1: The back face culling algorithm</figcaption>
+<p>Let’s take a more detailed look at how to determine whether a triangle is front-facing or back-facing.</p>
+<h3 id="classifying-triangles"><a href="12-hidden-surface-removal.html#classifying-triangles">Classifying Triangles</a></h3>
+<p>Suppose we have the normal vector <span class="math inline">\(\vec{N}\)</span> of a triangle and the vector <span class="math inline">\(\vec{V}\)</span> from a vertex of the triangle to the camera. Now suppose <span class="math inline">\(\vec{N}\)</span> points to the outside of the object. In order to classify the triangle as front-facing or back-facing, we compute the angle between <span class="math inline">\(\vec{N}\)</span> and <span class="math inline">\(\vec{V}\)</span> and check whether they’re within <span class="math inline">\(90^\circ\)</span> of each other.</p>
+<p>We can again use the properties of the dot product to make this simpler. Remember that if <span class="math inline">\(\alpha\)</span> is the angle between <span class="math inline">\(\vec{N}\)</span> and <span class="math inline">\(\vec{V}\)</span>, then</p>
+<p><span class="math display">\[{{\langle \vec{N}, \vec{V} \rangle} \over {|\vec{N}||\vec{V}|}} = \cos(\alpha)\]</span></p>
+<p>Because <span class="math inline">\(\cos(\alpha)\)</span> is non-negative for <span class="math inline">\(|\alpha| \le 90^\circ\)</span>, we only need to know the sign of this expression to classify a triangle as front-facing or back-facing. Note that <span class="math inline">\(|\vec{N}|\)</span> and <span class="math inline">\(|\vec{V}|\)</span> are always positive, so they don’t affect the sign of the expression. Therefore</p>
+<p><span class="math display">\[\mathrm{sign}(\langle \vec{N}, \vec{V} \rangle) = \mathrm{sign}(\cos(\alpha))\]</span></p>
+<p>The classification criterion is simply this:</p>
+<div class="center">
+<table>
+<tbody>
+<tr class="odd">
+<td style="text-align: center;"><span class="math inline">\(\langle\, \vec{\mathsf{N}}, \vec{\mathsf{V}}\, \rangle \le\)</span> 0</td>
+<td style="text-align: center;">Back-facing</td>
+</tr>
+<tr class="even">
+<td style="text-align: center;"><span class="math inline">\(\langle\, \vec{\mathsf{N}}, \vec{\mathsf{V}}\, \rangle &gt;\)</span> 0</td>
+<td style="text-align: center;">Front-facing</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The edge case <span class="math inline">\(\langle \vec{N}, \vec{V} \rangle = 0\)</span> corresponds to the case where we’re looking at the edge of a triangle head on—that is, when the camera and the triangle are coplanar. We can classify this triangle either way without affecting the result much, so we choose to classify it as back-facing to avoid dealing with degenerate triangles.</p>
+<p>Where do we get the normal vector from? It turns out there’s a vector operation, the <em>cross product</em> <span class="math inline">\(\vec{A} \times \vec{B}\)</span>, that takes two vectors <span class="math inline">\(\vec{A}\)</span> and <span class="math inline">\(\vec{B}\)</span> and produces a vector perpendicular to both (for a definition of this operation, see <a href="A0-linear-algebra.html">Appendix A (Linear Algebra)</a>). In other words, the cross product of two vectors on the surface of a triangle is a normal vector of that triangle. We can easily get two vectors on the triangle by subtracting its vertices from each other. So computing the direction of the normal vector of the triangle <span class="math inline">\(ABC\)</span> is straightforward:</p>
+<p><span class="math display">\[\vec{V_1} = B - A\]</span> <span class="math display">\[\vec{V_2} = C - A\]</span> <span class="math display">\[\vec{N} = \vec{V_1} \times \vec{V_2}\]</span></p>
+<p>Note that “the direction of the normal vector” is not the same as “the normal vector.” There are two reasons for this. The first one is that <span class="math inline">\(|\vec{N}|\)</span> isn’t necessarily equal to <span class="math inline">\(1\)</span>. This isn’t really important because normalizing <span class="math inline">\(\vec{N}\)</span> would be trivial and because we only care about the sign of <span class="math inline">\(\langle \vec{N}, \vec{V} \rangle\)</span>.</p>
+<p>The second reason is that if <span class="math inline">\(\vec{N}\)</span> is a normal vector of <span class="math inline">\(ABC\)</span>, so is <span class="math inline">\(\vec{-N}\)</span>, and in this case we care deeply about the direction <span class="math inline">\(\vec{N}\)</span> points in, because this is exactly what lets us classify triangles as either front-facing or back-facing.</p>
+<p>Moreover, the cross product of two vectors is not commutative: <span class="math inline">\(\vec{V_1}~\times~\vec{V_2} = -({\vec{V_2} \times \vec{V_1}}\)</span>). In other words, the order of the vectors in this operation matters. And since we defined <span class="math inline">\(V_1\)</span> and <span class="math inline">\(V_2\)</span> in terms of <span class="math inline">\(A\)</span>, <span class="math inline">\(B\)</span>, and <span class="math inline">\(C\)</span>, this means the order of the vertices in a triangle matters. We can’t treat the triangles <span class="math inline">\(ABC\)</span> and <span class="math inline">\(ACB\)</span> as the same triangle anymore.</p>
+<p>Fortunately, none of this is random. Given the definition of the cross product operation, the way we defined <span class="math inline">\(V_1\)</span> and <span class="math inline">\(V_2\)</span>, and the coordinate system we use (X to the right, Y up, Z forward), there is a very simple rule that determines the direction of the normal vector: if the vertices of the triangle <span class="math inline">\(ABC\)</span> are in clockwise order when you look at them from the camera, the normal vector as calculated above will point toward the camera—that is, the camera is looking at the front face of the triangle.</p>
+<p>We just need to keep this rule in mind when designing 3D models manually and list the vertices of each triangle in clockwise order when looking at its front face, so that their normals point “out” when we compute them this way. Of course, the example cube model we’ve been using so far follows this rule.</p>
+<h2 id="summary"><a href="12-hidden-surface-removal.html#summary">Summary</a></h2>
+<p>In this chapter, we made our renderer, which could previously only render wireframe objects, capable of rendering solid-looking objects. This is more involved than just using <code>DrawFilledTriangle</code> instead of <code>DrawWireframeTriangle</code>, because we need triangles close to the camera to obscure triangles further away from the camera.</p>
+<p>The first idea we explored was to draw the triangles from back to front, but this had a few drawbacks that we discussed. A better idea is to work at the pixel level; this idea led us to a technique called depth buffering, which produces correct results regardless of the order in which we draw the triangles.</p>
+<p>We finally explored an optional but valuable technique that doesn’t change the correctness of the results, but can save us from rendering approximately half of the triangles of the scene: back face culling. Since all the back-facing triangles of a closed object are covered by all its front-facing triangles, there’s no need to draw the back-facing triangles at all. We presented a simple algebraic way to determine whether a triangle is front- or back-facing.</p>
+<p>Now that we can render solid-looking objects, we’ll devote the rest of this book to making these objects look more realistic.</p>
+<div class="cgfs-buy">
+Found this interesting? <br/> <b>Buy the book from <a href="https://nostarch.com/computer-graphics-scratch">No Starch Press</a> or <a href="https://www.amazon.com/Computer-Graphics-Scratch-Gabriel-Gambetta/dp/1718500769">Amazon</a>. </b>
+</div>
+<div class="centered">
+<b><a href="11-clipping.html">&lt;&lt; Clipping</a> | <a href="13-shading.html">Shading &gt;&gt;</a></b>
+</div>
+<div class="cgfs_navbar">
+<b>Computer Graphics From Scratch</b> · <a href="dedication.html">Dedication</a> | <a href="acknowledgements.html">Acknowledgements</a> | <a href="index.html">Table of Contents</a> | <a href="00-introduction.html">Introduction</a> | <a href="01-common-concepts.html">Introductory Concepts</a><br/><b>Part I: Raytracing</b> · <a href="02-basic-raytracing.html">Basic Raytracing</a> | <a href="03-light.html">Light</a> | <a href="04-shadows-and-reflections.html">Shadows and Reflections</a> | <a href="05-extending-the-raytracer.html">Extending the Raytracer</a><br/><b>Part II: Rasterization</b> · <a href="06-lines.html">Lines</a> | <a href="07-filled-triangles.html">Filled Triangles</a> | <a href="08-shaded-triangles.html">Shaded Triangles</a> | <a href="09-perspective-projection.html">Perspective Projection</a> | <a href="10-describing-and-rendering-a-scene.html">Describing and Rendering a Scene</a> | <a href="11-clipping.html">Clipping</a> | Hidden Surface Removal | <a href="13-shading.html">Shading</a> | <a href="14-textures.html">Textures</a> | <a href="15-extending-the-rasterizer.html">Extending the Rasterizer</a><br/><b>Appendixes</b> · <a href="A0-linear-algebra.html">Linear Algebra</a> | <a href="afterword.html">Afterword</a>
+</div>
+<div class="signup" id="signup">
+</div>
+<script>$("#signup").load("/signup.php?m=cgfs&r=12-hidden-surface-removal");</script>
+</div>
+<div class="copyright">© Gabriel Gambetta 2026</div>
+</body>
+</html>

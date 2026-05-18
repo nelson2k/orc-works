@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html class="cgfs" lang="en" xml:lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, user-scalable=yes" name="viewport"/>
+<title>Shaded Triangles - Computer Graphics from Scratch - Gabriel Gambetta</title>
+<style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+</style>
+<link href="../css/style.css" rel="stylesheet"/>
+<!--[if lt IE 9]>
+<script src="//cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv-printshiv.min.js"></script>
+<![endif]-->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.2/MathJax.js?config=TeX-AMS-MML_HTMLorMML" type="text/javascript"></script>
+<script src="../js/jquery-3.2.1.min.js"></script>
+<!-- Google tag (gtag.js) -->
+<script async="" src="https://www.googletagmanager.com/gtag/js?id=G-M38VSQ9GME"></script>
+<script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-M38VSQ9GME');
+</script>
+</head>
+<body>
+<div class="main">
+<div class="nav">
+<a href="index.html">&lt;&lt; Computer Graphics from Scratch</a> <a class="homelink" href="https://gabrielgambetta.com/index.html">Gabriel Gambetta</a>
+</div>
+<div style="clear:both;"></div>
+<h1 id="ch:shaded_triangles">Shaded Triangles</h1>
+<p>In the previous chapter, we developed an algorithm to draw a triangle filled with a solid color. Our goal for this chapter is to draw a <em>shaded</em> triangle—that is, a triangle filled with a color gradient.</p>
+<h2 id="defining-our-problem"><a href="08-shaded-triangles.html#defining-our-problem">Defining Our Problem</a></h2>
+<p>We want to fill the triangle with different <em>shades</em> of a single color. It will look like Figure 8-1.</p>
+<p>We need a more formal definition of what we’re trying to draw. To do this, we’ll assign a real value <span class="math inline">\(h\)</span> to each vertex, denoting the intensity of the color at the vertex. <span class="math inline">\(h\)</span> is in the <span class="math inline">\([0.0, 1.0]\)</span> range, where <span class="math inline">\(0.0\)</span> represents the darkest possible shade (that is, black) and <span class="math inline">\(1.0\)</span> represents the brightest possible shade (that is, the original color—not white!).</p>
+<figure>
+<img alt="Figure 8-1: A shaded triangle" id="fig:shaded_triangle" src="images/raster-04.png"/><figcaption aria-hidden="true">Figure 8-1: A shaded triangle</figcaption>
+</figure>
+<p>To compute the exact color shade of a pixel given the base color of the triangle <span class="math inline">\(C\)</span> and the intensity at that pixel <span class="math inline">\(h\)</span>, we’ll multiply channel-wise: <span class="math inline">\(C_h = (R_C \cdot h, G_C \cdot h, B_C \cdot h)\)</span>. Therefore <span class="math inline">\(h = 0.0\)</span> yields pure black, <span class="math inline">\(h = 1.0\)</span> yields the original color <span class="math inline">\(C\)</span>, and <span class="math inline">\(h = 0.5\)</span> yields a color half as bright as the original one.</p>
+<h2 id="computing-edge-shading"><a href="08-shaded-triangles.html#computing-edge-shading">Computing Edge Shading</a></h2>
+<p>In order to draw a shaded triangle, all we need to do is compute a value of <span class="math inline">\(h\)</span> for each pixel of the triangle, compute the corresponding shade of the color, and paint the pixel. Easy!</p>
+<p>At this point, however, we only know the values of <span class="math inline">\(h\)</span> for the triangle vertices, because we chose them. How do we compute values of <span class="math inline">\(h\)</span> for the rest of the triangle?</p>
+<p>Let’s start with the edges of the triangle. Consider the edge <span class="math inline">\(AB\)</span>. We know <span class="math inline">\(h_A\)</span> and <span class="math inline">\(h_B\)</span>. What happens at <span class="math inline">\(M\)</span>, the midpoint of <span class="math inline">\(AB\)</span>? Since we want the intensity to vary smoothly from <span class="math inline">\(A\)</span> to <span class="math inline">\(B\)</span>, the value of <span class="math inline">\(h_M\)</span> must be between <span class="math inline">\(h_A\)</span> and <span class="math inline">\(h_B\)</span>. Since <span class="math inline">\(M\)</span> is in the middle of <span class="math inline">\(AB\)</span>, why not choose <span class="math inline">\(h_M\)</span> to be in the middle of <span class="math inline">\(h_A\)</span> and <span class="math inline">\(h_B\)</span>—that is, their average?</p>
+<p>More formally, we have a function <span class="math inline">\(h = f(P)\)</span> that gives each point <span class="math inline">\(P\)</span> an intensity value <span class="math inline">\(h\)</span>; we know its values at <span class="math inline">\(A\)</span> and <span class="math inline">\(B\)</span>, <span class="math inline">\(h(A) = h_A\)</span> and <span class="math inline">\(h(B) = h_B\)</span>, respectively. We want this function to be smooth. Since we know nothing else about <span class="math inline">\(h = f(P)\)</span>, we can choose any function that is compatible with what we <em>do</em> know, such as a linear function (Figure 8-2).</p>
+<figure>
+<img alt="Figure 8-2: A linear function h(P), compatible with what we know about h(A) and h(B)" id="fig:linear_function" src="images/r11-linear-function.png"/><figcaption aria-hidden="true">Figure 8-2: A linear function <em>h</em>(<em>P</em>), compatible with what we know about <em>h</em>(<em>A</em>) and <em>h</em>(<em>B</em>)</figcaption>
+</figure>
+<p>This is suspiciously similar to the situation in the previous chapter: we had a linear function <span class="math inline">\(x = f(y)\)</span>, we knew the values of this function at the vertices of the triangle, and we wanted to compute values of <span class="math inline">\(x\)</span> along its sides. We can compute values of <span class="math inline">\(h\)</span> along the sides of the triangle in a very similar way, using <code>Interpolate</code> with y as the independent variable (the values we know) and h as the dependent variable (the values we want):</p>
+<pre>x01 = Interpolate(y0, x0, y1, x1)
+h01 = Interpolate(y0, h0, y1, h1)
+
+x12 = Interpolate(y1, x1, y2, x2)
+h12 = Interpolate(y1, h1, y2, h2)
+
+x02 = Interpolate(y0, x0, y2, x2)
+h02 = Interpolate(y0, h0, y2, h2)</pre>
+<p>Next, we concatenated the <span class="math inline">\(x\)</span> arrays for the “short” sides and then determined which of <code>x02</code> and <code>x012</code> was <code>x_left</code> and which was <code>x_right</code>. Again, we can do something very similar here for the <span class="math inline">\(h\)</span> vectors.</p>
+<p>However, we will always use the <span class="math inline">\(x\)</span> values to determine which side is left and which side is right, and the <span class="math inline">\(h\)</span> values will just “follow along.” <span class="math inline">\(x\)</span> and <span class="math inline">\(h\)</span> are properties of actual points on the screen, so we can’t freely mix-and-match left- and right-side values.</p>
+<p>We can code this as follows:</p>
+<pre>// Concatenate the short sides
+remove_last(x01)
+x012 = x01 + x12
+
+remove_last(h01)
+h012 = h01 + h12
+
+// Determine which is left and which is right
+m = floor(x012.length / 2)
+if x02[m] &lt; x012[m] {
+    x_left = x02
+    h_left = h02
+
+    x_right = x012
+    h_right = h012
+} else {
+    x_left = x012
+    h_left = h012
+
+    x_right = x02
+    h_right = h02
+}</pre>
+<p>This is very similar to the relevant section of the code in the previous chapter (Listing 7-1), except that every time we do something with an <code>x</code> vector, we do the same with the corresponding <code>h</code> vector.</p>
+<h2 id="computing-interior-shading"><a href="08-shaded-triangles.html#computing-interior-shading">Computing Interior Shading</a></h2>
+<p>The last step is drawing the actual horizontal segments. For each segment, we know <code>x_left</code> and <code>x_right</code>, as in the previous chapter; now we also know <code>h_left</code> and <code>h_right</code>. But this time we can’t just iterate from left to right and draw every pixel with the base color: we need to compute a value of <span class="math inline">\(h\)</span> for <em>each pixel</em> of the segment.</p>
+<p>Again, we can assume <span class="math inline">\(h\)</span> varies linearly with <span class="math inline">\(x\)</span>, and use <code>Interpolate</code> to compute these values. In this case, the independent variable is <span class="math inline">\(x\)</span>, and it goes from the <code>x_left</code> value to the <code>x_right</code> value of the specific horizontal segment we’re shading; the dependent variable is <span class="math inline">\(h\)</span>, and its corresponding values for <code>x_left</code> and <code>x_right</code> are <code>h_left</code> and <code>h_right</code> for that segment:</p>
+<pre>x_left_this_y = x_left[y - y0]
+h_left_this_y = h_left[y - y0]
+
+x_right_this_y = x_right[y - y0]
+h_right_this_y = h_right[y - y0]
+
+h_segment = Interpolate(x_left_this_y, h_left_this_y,
+                        x_right_this_y, h_right_this_y)</pre>
+<p>Or, expressed in a more compact way:</p>
+<pre>h_segment = Interpolate(x_left[y - y0], h_left[y - y0],
+                        x_right[y - y0], h_right[y - y0])</pre>
+<p>Now it’s just a matter of computing the color for each pixel and painting it! Listing 8-1 shows the complete pseudocode for <code>DrawShadedTriangle</code>.</p>
+<pre data-caption="Listing 8-1: A function for drawing shaded triangles" data-label="lst:draw_shaded_triangle">DrawShadedTriangle (P0, P1, P2, color) {
+   ❶// Sort the points so that y0 &lt;= y1 &lt;= y2
+    if y1 &lt; y0 { swap(P1, P0) }
+    if y2 &lt; y0 { swap(P2, P0) }
+    if y2 &lt; y1 { swap(P2, P1) }
+
+    // Compute the x coordinates and h values of the triangle edges
+    x01 = Interpolate(y0, x0, y1, x1)
+    h01 = Interpolate(y0, h0, y1, h1)
+
+    x12 = Interpolate(y1, x1, y2, x2)
+    h12 = Interpolate(y1, h1, y2, h2)
+
+    x02 = Interpolate(y0, x0, y2, x2)
+    h02 = Interpolate(y0, h0, y2, h2)
+
+    // Concatenate the short sides
+    remove_last(x01)
+    x012 = x01 + x12
+
+    remove_last(h01)
+    h012 = h01 + h12
+
+    // Determine which is left and which is right
+    m = floor(x012.length / 2)
+    if x02[m] &lt; x012[m] {
+        x_left = x02
+        h_left = h02
+
+        x_right = x012
+        h_right = h012
+    } else {
+        x_left = x012
+        h_left = h012
+
+        x_right = x02
+        h_right = h02
+    }
+
+    // Draw the horizontal segments
+   ❷for y = y0 to y2 {
+        x_l = x_left[y - y0]
+        x_r = x_right[y - y0]
+
+       ❸h_segment = Interpolate(x_l, h_left[y - y0], x_r, h_right[y - y0])
+        for x = x_l to x_r {
+           ❹shaded_color = color * h_segment[x - x_l]
+            canvas.PutPixel(x, y, shaded_color)
+        }
+    }
+}</pre><figcaption class="code_caption">Listing 8-1: A function for drawing shaded triangles</figcaption>
+<p>The pseudocode for this function is very similar to that for the function developed in the previous chapter (Listing 7-1). Before the horizontal segment loop ❷, we manipulate the <span class="math inline">\(x\)</span> vectors and the <span class="math inline">\(h\)</span> vectors in similar ways, as explained above. Inside the loop, we have an extra call to <code>Interpolate</code> ❸ to compute the <span class="math inline">\(h\)</span> values for every pixel in the current horizontal segment. Finally, in the inner loop we use the interpolated values of <span class="math inline">\(h\)</span> to compute a color for each pixel ❹.</p>
+<p>Note that we’re sorting the triangle vertices as before ❶. However, we now consider these vertices and their attributes, such as the intensity value <span class="math inline">\(h\)</span>, to be an indivisible whole; that is, swapping the coordinates of two vertices must also swap their attributes.</p>
+<p><a class="cgfs_demo" href="https://gabrielgambetta.com/cgfs/gradient-demo">Source code and live demo &gt;&gt;</a></p>
+<h2 id="summary"><a href="08-shaded-triangles.html#summary">Summary</a></h2>
+<p>In this chapter, we’ve extended the triangle-drawing code developed in the previous chapter to support smoothly shaded triangles. Note that we can still use it to draw single color triangles by using 1.0 as the value of <span class="math inline">\(h\)</span> for all three vertices.</p>
+<p>The idea behind this algorithm is actually more general than it seems. The fact that <span class="math inline">\(h\)</span> is an intensity value has no impact on the “shape” of the algorithm; we assign meaning to this value only at the very end, when we’re about to call <code>PutPixel</code>. This means we could use this algorithm to compute the value of any <em>attribute</em> of the vertices of the triangle, for every pixel of the triangle, as long as we assume this value varies linearly on the screen.</p>
+<p>We will indeed use this algorithm to improve the visual appearance of our triangles in the upcoming chapters. For this reason, it’s a good idea to make sure you really understand this algorithm before proceeding further.</p>
+<p>In the next chapter, however, we take a small detour. Having mastered the drawing of triangles on a 2D canvas, we will turn our attention to the third dimension.</p>
+<div class="cgfs-buy">
+Found this interesting? <br/> <b>Buy the book from <a href="https://nostarch.com/computer-graphics-scratch">No Starch Press</a> or <a href="https://www.amazon.com/Computer-Graphics-Scratch-Gabriel-Gambetta/dp/1718500769">Amazon</a>. </b>
+</div>
+<div class="centered">
+<b><a href="07-filled-triangles.html">&lt;&lt; Filled Triangles</a> | <a href="09-perspective-projection.html">Perspective Projection &gt;&gt;</a></b>
+</div>
+<div class="cgfs_navbar">
+<b>Computer Graphics From Scratch</b> · <a href="dedication.html">Dedication</a> | <a href="acknowledgements.html">Acknowledgements</a> | <a href="index.html">Table of Contents</a> | <a href="00-introduction.html">Introduction</a> | <a href="01-common-concepts.html">Introductory Concepts</a><br/><b>Part I: Raytracing</b> · <a href="02-basic-raytracing.html">Basic Raytracing</a> | <a href="03-light.html">Light</a> | <a href="04-shadows-and-reflections.html">Shadows and Reflections</a> | <a href="05-extending-the-raytracer.html">Extending the Raytracer</a><br/><b>Part II: Rasterization</b> · <a href="06-lines.html">Lines</a> | <a href="07-filled-triangles.html">Filled Triangles</a> | Shaded Triangles | <a href="09-perspective-projection.html">Perspective Projection</a> | <a href="10-describing-and-rendering-a-scene.html">Describing and Rendering a Scene</a> | <a href="11-clipping.html">Clipping</a> | <a href="12-hidden-surface-removal.html">Hidden Surface Removal</a> | <a href="13-shading.html">Shading</a> | <a href="14-textures.html">Textures</a> | <a href="15-extending-the-rasterizer.html">Extending the Rasterizer</a><br/><b>Appendixes</b> · <a href="A0-linear-algebra.html">Linear Algebra</a> | <a href="afterword.html">Afterword</a>
+</div>
+<div class="signup" id="signup">
+</div>
+<script>$("#signup").load("/signup.php?m=cgfs&r=08-shaded-triangles");</script>
+</div>
+<div class="copyright">© Gabriel Gambetta 2026</div>
+</body>
+</html>

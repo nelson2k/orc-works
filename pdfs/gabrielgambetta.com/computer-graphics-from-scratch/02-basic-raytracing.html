@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html class="cgfs" lang="en" xml:lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, user-scalable=yes" name="viewport"/>
+<title>Basic Raytracing - Computer Graphics from Scratch - Gabriel Gambetta</title>
+<style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+</style>
+<link href="../css/style.css" rel="stylesheet"/>
+<!--[if lt IE 9]>
+<script src="//cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv-printshiv.min.js"></script>
+<![endif]-->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.2/MathJax.js?config=TeX-AMS-MML_HTMLorMML" type="text/javascript"></script>
+<script src="../js/jquery-3.2.1.min.js"></script>
+<!-- Google tag (gtag.js) -->
+<script async="" src="https://www.googletagmanager.com/gtag/js?id=G-M38VSQ9GME"></script>
+<script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-M38VSQ9GME');
+</script>
+</head>
+<body>
+<div class="main">
+<div class="nav">
+<a href="index.html">&lt;&lt; Computer Graphics from Scratch</a> <a class="homelink" href="https://gabrielgambetta.com/index.html">Gabriel Gambetta</a>
+</div>
+<div style="clear:both;"></div>
+<h1 id="ch:raytracing_intro">Basic Raytracing</h1>
+<p>In this chapter, we’ll introduce raytracing, the first major algorithm we’ll cover. We start by motivating the algorithm and laying out some basic pseudocode. Then we look at how to represent rays of light and objects in a scene. Finally, we derive a way to compute which rays of light make up the visible image of each of the objects in our scene and see how we can represent them on the canvas.</p>
+<h2 id="rendering-a-swiss-landscape"><a href="02-basic-raytracing.html#rendering-a-swiss-landscape">Rendering a Swiss Landscape</a></h2>
+<p>Suppose you’re visiting some exotic place and come across a stunning landscape—so stunning, you just <em>need</em> to make a painting capturing its beauty. Figure 2-1 shows one such landscape.</p>
+<figure>
+<img alt="Figure 2-1: A breathtaking Swiss landscape" id="fig:swiss_landscape" src="images/image-000.jpg"/><figcaption aria-hidden="true">Figure 2-1: A breathtaking Swiss landscape</figcaption>
+</figure>
+<p>You have a canvas and a paint brush, but you absolutely lack artistic talent. Is all hope lost?</p>
+<p>Not necessarily. You may not have artistic talent, but you are methodical. So you do the most obvious thing: you get an insect net. You cut a rectangular piece, frame it, and fix it to a stick. Now you can look at the landscape through a netted window. Next, you choose the best point of view to appreciate this landscape and plant another stick to mark the exact position where your eye should be.</p>
+<p>You haven’t started the painting yet, but now you have a fixed point of view and a fixed frame through which you can see the landscape. Moreover, this fixed frame is divided into small squares by the insect net. Now comes the methodical part. You draw a grid on the canvas, giving it the same number of squares as the insect net. Then you look at the top-left square of the net. What’s the predominant color you can see through it? Sky blue. So you paint the top-left square of the canvas sky blue. You do this for every square, and soon enough the canvas contains a pretty good painting of the landscape, as seen through the frame. The resulting painting is shown in Figure 2-2.</p>
+<figure>
+<img alt="Figure 2-2: A crude approximation of the landscape" id="fig:crude_landscape" src="images/image-001.png"/><figcaption aria-hidden="true">Figure 2-2: A crude approximation of the landscape</figcaption>
+</figure>
+<p>When you think about it, a computer is essentially a very methodical machine absolutely lacking artistic talent. We can describe the process of creating our painting as follows:</p>
+<pre>For each little square on the canvas
+    Paint it the right color</pre>
+<p>Easy! However, that formulation is too abstract to implement directly on a computer. We can go into a bit more detail:</p>
+<pre>Place the eye and the frame as desired
+For each square on the canvas
+    Determine which square on the grid corresponds to this square on the canvas
+    Determine the color seen through that grid square
+    Paint the square with that color</pre>
+<p>This is still too abstract, but it starts to look like an algorithm—and perhaps surprisingly, that’s a high-level overview of the full raytracing algorithm! Yes, it’s that simple.</p>
+<h2 id="basic-assumptions"><a href="02-basic-raytracing.html#basic-assumptions">Basic Assumptions</a></h2>
+<p>Part of the charm of computer graphics is drawing things on the screen. To achieve this as soon as possible, we’ll make some simplifying assumptions. Of course, these assumptions impose some restrictions over what we can do, but we’ll lift the restrictions in later chapters.</p>
+<p>First of all, we’ll assume a fixed viewing position. The viewing position, the place where you’d put your eye in the Swiss landscape analogy, is commonly called the <em>camera position</em>; let’s call it <span class="math inline">\(O\)</span>. We’ll assume that the camera occupies a single point in space, that it is located at the origin of the coordinate system, and that it never moves from there, so <span class="math inline">\(O = (0, 0, 0)\)</span> for now.</p>
+<p>Second, we’ll assume a fixed camera orientation. The camera orientation determines where the camera is pointing. We’ll assume it looks in the direction of the positive <span class="math inline">\(Z\)</span> axis (which we’ll shorten to <span class="math inline">\(\vec{Z_+}\)</span>), with the positive Y axis (<span class="math inline">\(\vec{Y_+}\)</span>) up and the positive X axis (<span class="math inline">\(\vec{X_+}\)</span>) to the right (Figure 2-3).</p>
+<figure>
+<img alt="Figure 2-3: The position and orientation of the camera" id="fig:camera_orientation" src="images/03-camera-orientation.png"/><figcaption aria-hidden="true">Figure 2-3: The position and orientation of the camera</figcaption>
+</figure>
+<p>The camera position and orientation are now fixed. Still missing from the analogy is the “frame” through which we look at the scene. We’ll assume this frame has dimensions <span class="math inline">\(V_w\)</span> and <span class="math inline">\(V_h\)</span>, and is frontal to the camera orientation—that is, perpendicular to <span class="math inline">\(\vec{Z_+}\)</span>. We’ll also assume it’s at a distance <span class="math inline">\(d\)</span>, its sides are parallel to the <span class="math inline">\(X\)</span> and <span class="math inline">\(Y\)</span> axes, and it’s centered with respect to <span class="math inline">\(\vec{Z}\)</span>. That’s a mouthful, but it’s actually quite simple. Take a look at Figure 2-4.</p>
+<p>The rectangle that will act as our window to the world is called the <em>viewport</em>. Essentially, we’ll draw on the canvas whatever we see through the viewport. Note that the size of the viewport and the distance to the camera determine the angle visible from the camera, called the <em>field of view</em>, or FOV for short. Humans have an almost <span class="math inline">\(180^\circ\)</span> horizontal FOV (although much of it is blurry peripheral vision with no sense of depth). For simplicity, we’ll set <span class="math inline">\(V_w = V_h = d = 1\)</span>; this results in a FOV of approximately <span class="math inline">\(53^\circ\)</span>, which produces reasonable-looking images that are not overly distorted.</p>
+<figure>
+<img alt="Figure 2-4: The position and orientation of the viewport" id="fig:viewport" src="images/03-viewport.png"/><figcaption aria-hidden="true">Figure 2-4: The position and orientation of the viewport</figcaption>
+</figure>
+<p>Let’s go back to the “algorithm” presented earlier, use the appropriate technical terms, and number the steps in Listing 2-1:</p>
+<pre data-caption="Listing 2-1: A high-level description of our raytracing algorithm" data-label="lst:raytrace_pseudo">❶Place the camera and the viewport as desired
+For each pixel on the canvas
+    ❷Determine which square on the viewport corresponds to this pixel
+    ❸Determine the color seen through that square
+    ❹Paint the pixel with that color</pre><figcaption class="code_caption">Listing 2-1: A high-level description of our raytracing algorithm</figcaption>
+<p>We have just done step ❶ (or, more precisely, gotten it out of the way for now). Step ❹ is trivial: we simply use <code>canvas.PutPixel(x, y, color)</code>. Let’s do step ❷ quickly, and then focus our attention on increasingly sophisticated ways of doing step ❸ over the next few chapters.</p>
+<h2 id="canvas-to-viewport"><a href="02-basic-raytracing.html#canvas-to-viewport">Canvas to Viewport</a></h2>
+<p>Step ❷ of our algorithm in Listing 2-1 asks us to <code>Determine which square on the viewport corresponds to this pixel</code>. We know the canvas coordinates of the pixel—let’s call them <span class="math inline">\(C_x\)</span> and <span class="math inline">\(C_y\)</span>. Notice how we conveniently placed the viewport so that its axes match the orientation of those of the canvas, and its center matches the center of the canvas. Because the viewport is measured in world units and the canvas is measured in pixels, going from canvas coordinates to space coordinates is just a change of scale!</p>
+<p><span class="math display">\[V_x = C_x \cdot {V_w \over C_w}\]</span></p>
+<p><span class="math display">\[V_y = C_y \cdot {V_h \over C_h}\]</span></p>
+<p>There’s an extra detail. Although the viewport is 2D, it’s embedded in 3D space. We defined it to be at a distance <span class="math inline">\(d\)</span> from the camera; every point in this plane (called the <em>projection plane</em>) has, by definition, <span class="math inline">\(z = d\)</span>. Therefore,</p>
+<p><span class="math display">\[V_z = d\]</span></p>
+<p>And we’re done with this step. For each pixel <span class="math inline">\((C_x, C_y)\)</span> on the canvas, we can determine its corresponding point on the viewport <span class="math inline">\((V_x, V_y, V_z)\)</span>.</p>
+<h2 id="tracing-rays"><a href="02-basic-raytracing.html#tracing-rays">Tracing Rays</a></h2>
+<p>The next step is to figure out what color the light coming through <span class="math inline">\((V_x, V_y, V_z)\)</span> is, as seen from the camera’s point of view <span class="math inline">\((O_x, O_y, O_z)\)</span>.</p>
+<p>In the real world, light comes from a light source (the Sun, a light bulb, and so on), bounces off several objects, and then finally reaches our eyes. We could try simulating the path of every photon leaving our simulated light sources, but it would be <em>extremely</em> time-consuming. Not only would we have to simulate a mind-boggling number of photons (a single 100 W light bulb emits <span class="math inline">\(10^{20}\)</span> photons per second!), only a tiny minority of them would happen to reach <span class="math inline">\((O_x, O_y, O_z)\)</span> after coming through the viewport. This technique is called <em>photon tracing</em> or <em>photon mapping</em>; unfortunately, it’s outside the scope of this book.</p>
+<p>Instead, we’ll consider the rays of light “in reverse”; we’ll start with a ray originating from the camera, going through a point in the viewport, and tracing its path until it hits some object in the scene. This object is what the camera “sees” through that point of the viewport. So, as a first approximation, we’ll just take the color of that object as “the color of the light coming through that point,” as shown in Figure 2-5.</p>
+<figure>
+<img alt="Figure 2-5: A tiny square in the viewport, representing a single pixel in the canvas, painted with the color of the object the camera sees through it" id="fig:basic_raytracer" src="images/03-basic-raytracer.png"/><figcaption aria-hidden="true">Figure 2-5: A tiny square in the viewport, representing a single pixel in the canvas, painted with the color of the object the camera sees through it</figcaption>
+</figure>
+<p>Now we just need some equations.</p>
+<h3 id="the-ray-equation"><a href="02-basic-raytracing.html#the-ray-equation">The Ray Equation</a></h3>
+<p>The most convenient way to represent a ray for our purposes is with a parametric equation. We know the ray passes through <span class="math inline">\(O\)</span>, and we know its direction (from <span class="math inline">\(O\)</span> to <span class="math inline">\(V\)</span>), so we can express any point P in the ray as</p>
+<p><span class="math display">\[P = O + t(V - O)\]</span></p>
+<p>where <span class="math inline">\(t\)</span> is any real number. By plugging every value of <span class="math inline">\(t\)</span> from <span class="math inline">\(-\infty\)</span> to <span class="math inline">\(+\infty\)</span> into this equation, we get every point <span class="math inline">\(P\)</span> along the ray.</p>
+<p>Let’s call <span class="math inline">\((V - O)\)</span>, the direction of the ray, <span class="math inline">\(\vec{D}\)</span>. The equation becomes</p>
+<p><span class="math display">\[P = O + t\vec{D}\]</span></p>
+<p>An intuitive way to understand this equation is that we start the ray at the origin (<span class="math inline">\(O\)</span>) and “advance” along the direction of the ray (<span class="math inline">\(\vec{D}\)</span>) by some amount (<span class="math inline">\(t\)</span>); it’s easy to see that this includes all the points along the ray. You can read more details about these vector operations in the Linear Algebra appendix. Figure 2-6 shows our equation in action.</p>
+<figure>
+<img alt="Figure 2-6: Some points of the ray O + t\vec{\mathsf{D}} for different values of t." id="fig:parametric" src="images/04-parametric.png"/><figcaption aria-hidden="true">Figure 2-6: Some points of the ray <em>O</em> + <em>t</em><span class="math inline">\(\vec{\mathsf{D}}\)</span> for different values of <em>t</em>.</figcaption>
+</figure>
+<p>Figure 2-6 shows the points along the ray that corresponds to <span class="math inline">\(t = 0.5\)</span> and <span class="math inline">\(t = 1.0\)</span>. Every value of <span class="math inline">\(t\)</span> yields a different point along the ray.</p>
+<h3 id="the-sphere-equation"><a href="02-basic-raytracing.html#the-sphere-equation">The Sphere Equation</a></h3>
+<p>Now we need to have some sort of object in the scene, so that our rays can hit <em>something</em>. We could choose any arbitrary geometric primitive as the building block of our scenes; for raytracing, we’ll use spheres because they’re easy to manipulate with equations.</p>
+<p>What is a sphere? A sphere is the set of points that lie at a fixed distance from a fixed point. That distance is called the <em>radius</em> of the sphere, and the point is called the <em>center</em> of the sphere. Figure 2-7 shows a sphere, defined by its center <span class="math inline">\(C\)</span> and its radius <span class="math inline">\(r\)</span>.</p>
+<figure>
+<img alt="Figure 2-7: A sphere, defined by its center and its radius" id="fig:sphere" src="images/04-sphere.png"/><figcaption aria-hidden="true">Figure 2-7: A sphere, defined by its center and its radius</figcaption>
+</figure>
+<p>According to our definition above, if <span class="math inline">\(C\)</span> is the center and <span class="math inline">\(r\)</span> is the radius of a sphere, the points <span class="math inline">\(P\)</span> on the surface of that sphere must satisfy the following equation:</p>
+<p><span class="math display">\[distance(P, C) = r\]</span></p>
+<p>Let’s play a bit with this equation. If you find any of this math unfamiliar, read through the Linear Algebra appendix.</p>
+<p>The distance between <span class="math inline">\(P\)</span> and <span class="math inline">\(C\)</span> is the length of the vector from <span class="math inline">\(P\)</span> to <span class="math inline">\(C\)</span>:</p>
+<p><span class="math display">\[|P - C| = r\]</span></p>
+<p>The length of a vector (denoted <span class="math inline">\(|\vec{V}|\)</span>) is the square root of its dot product with itself (denoted <span class="math inline">\(\langle \vec{V}, \vec{V} \rangle\)</span>):</p>
+<p><span class="math display">\[\sqrt{\langle P - C, P - C \rangle} = r\]</span></p>
+<p>To get rid of the square root, we can square both sides:</p>
+<p><span class="math display">\[\langle P - C, P - C \rangle = r^2\]</span></p>
+<p>All these formulations of the sphere equation are equivalent, but this last one is the most convenient to manipulate in the following steps.</p>
+<h3 id="ray-meets-sphere"><a href="02-basic-raytracing.html#ray-meets-sphere">Ray Meets Sphere</a></h3>
+<p>We now have two equations: one describing the points on the sphere, and one describing the points on the ray:</p>
+<p><span class="math display">\[\langle P - C, P - C \rangle = r^2\]</span></p>
+<p><span class="math display">\[P = O + t\vec{D}\]</span></p>
+<p>Do the ray and the sphere intersect? If so, where?</p>
+<p>Suppose the ray and the sphere do intersect at a point <span class="math inline">\(P\)</span>. This point is both along the ray and on the surface of the sphere, so it must satisfy both equations at the same time. Note that the only variable in these equations is the parameter <span class="math inline">\(t\)</span>, since <span class="math inline">\(O\)</span>, <span class="math inline">\(\vec{D}\)</span>, <span class="math inline">\(C\)</span>, and <span class="math inline">\(r\)</span> are given and <span class="math inline">\(P\)</span> is the point we’re trying to find.</p>
+<p>Since <span class="math inline">\(P\)</span> represents the same point in both equations, we can substitute <span class="math inline">\(P\)</span> in the first one with the expression for <span class="math inline">\(P\)</span> in the second. This gives us</p>
+<p><span class="math display">\[\langle O + t\vec{D} - C, O + t\vec{D} - C \rangle = r^2\]</span></p>
+<p>If we can find values of <span class="math inline">\(t\)</span> that satisfy this equation, we can put them in the ray equation to find the points where the ray intersects the sphere.</p>
+<p>In its current form, the equation is somewhat unwieldy. Let’s do some algebraic manipulation to see what we can get out of it.</p>
+<p>First, let <span class="math inline">\(\vec{CO} = O - C\)</span>. Then we can write the equation as</p>
+<p><span class="math display">\[\langle \vec{CO} + t\vec{D}, \vec{CO} + t\vec{D} \rangle = r^2\]</span></p>
+<p>Then we expand the dot product into its components, using its distributive properties (again, feel free to consult the Linear Algebra appendix):</p>
+<p><span class="math display">\[\langle \vec{CO} + t\vec{D}, \vec{CO} \rangle + \langle \vec{CO} + t\vec{D}, t\vec{D} \rangle = r^2\]</span></p>
+<p><span class="math display">\[\langle \vec{CO}, \vec{CO} \rangle + \langle t\vec{D}, \vec{CO} \rangle + \langle \vec{CO}, t\vec{D} \rangle + \langle t\vec{D}, t\vec{D} \rangle = r^2\]</span></p>
+<p>Rearranging the terms a bit, we get</p>
+<p><span class="math display">\[\langle t\vec{D}, t\vec{D} \rangle + 2\langle \vec{CO}, t\vec{D} \rangle + \langle \vec{CO}, \vec{CO} \rangle = r^2\]</span></p>
+<p>Moving the parameter <span class="math inline">\(t\)</span> out of the dot products and moving <span class="math inline">\(r^2\)</span> to the other side of the equation gives us</p>
+<p><span class="math display">\[t^2 \langle \vec{D}, \vec{D} \rangle + t(2\langle \vec{CO}, \vec{D} \rangle) + \langle \vec{CO}, \vec{CO} \rangle - r^2 = 0\]</span></p>
+<p>Remember that the dot product of two vectors is a real number, so every term between angle brackets is a real number. If we give them names, we’ll get something much more familiar:</p>
+<p><span class="math display">\[a = \langle \vec{D}, \vec{D} \rangle\]</span></p>
+<p><span class="math display">\[b = 2\langle \vec{CO}, \vec{D} \rangle\]</span></p>
+<p><span class="math display">\[c = \langle \vec{CO}, \vec{CO} \rangle - r^2\]</span></p>
+<p><span class="math display">\[at^2 + bt + c = 0\]</span></p>
+<p>This is nothing more and nothing less than a good old quadratic equation! Its solutions are the values of the parameter <span class="math inline">\(t\)</span> where the ray intersects the sphere:</p>
+<p><span class="math display">\[\{ t_1, t_2 \} = {{-b \pm \sqrt{ b^2 -4ac} \over {2a}}}\]</span></p>
+<p>Fortunately, this makes geometrical sense. As you may remember, a quadratic equation can have no solutions, one double solution, or two different solutions, depending on the value of the discriminant <span class="math inline">\(b^2 -4ac\)</span>. This corresponds exactly to the cases where the ray doesn’t intersect the sphere, the ray is tangent to the sphere, and the ray enters and exits the sphere, respectively (Figure 2-8).</p>
+<figure>
+<img alt="Figure 2-8: The geometrical interpretation of the solutions to the quadratic equation: no solutions, one solution, or two solutions." id="fig:sphere_solutions" src="images/04-sphere-solutions.png"/><figcaption aria-hidden="true">Figure 2-8: The geometrical interpretation of the solutions to the quadratic equation: no solutions, one solution, or two solutions.</figcaption>
+</figure>
+<p>Once we have found the value of <span class="math inline">\(t\)</span>, we can plug it back into the ray equation, and we finally get the intersection point <span class="math inline">\(P\)</span> corresponding to that value of <span class="math inline">\(t\)</span>.</p>
+<h2 id="rendering-our-first-spheres"><a href="02-basic-raytracing.html#rendering-our-first-spheres">Rendering our First Spheres</a></h2>
+<p>To recap, for each pixel on the canvas, we can compute the corresponding point on the viewport. Given the position of the camera, we can express the equation of a ray that starts at the camera and goes through that point of the viewport. Given a sphere, we can compute where the ray intersects that sphere.</p>
+<p>So all we need to do is to compute the intersections of the ray and each sphere, keep the intersection closest to the camera, and paint the pixel on the canvas with the appropriate color. We’re almost ready to render our first spheres!</p>
+<p>The parameter <span class="math inline">\(t\)</span> deserves some extra attention, though. Let’s go back to the ray equation:</p>
+<p><span class="math display">\[P = O + t(V - O)\]</span></p>
+<p>Since the origin and direction of the ray are fixed, varying <span class="math inline">\(t\)</span> across all the real numbers will yield every point <span class="math inline">\(P\)</span> in this ray. Note that for <span class="math inline">\(t = 0\)</span> we get <span class="math inline">\(P = O\)</span>, and for <span class="math inline">\(t = 1\)</span> we get <span class="math inline">\(P = V\)</span>. Negative values of <span class="math inline">\(t\)</span> yield points in the <em>opposite</em> direction—that is, <em>behind</em> the camera. So, we can divide the parameter space into three parts, as in Table 2-1. Figure 2-9 shows a diagram of the parameter space.</p>
+<div id="tab:parameter_space">
+<table>
+<caption>Table 2-1: Subdivisions of the Parameter Space</caption>
+<tbody>
+<tr class="odd">
+<td style="text-align: left;"><em>t</em> &lt; 0</td>
+<td style="text-align: left;">Behind the camera</td>
+<td></td>
+</tr>
+<tr class="even">
+<td style="text-align: left;">0 ≤ <em>t</em> ≤ 1</td>
+<td style="text-align: left;">Between the camera and the projection plane/viewport</td>
+<td></td>
+</tr>
+<tr class="odd">
+<td style="text-align: left;"><em>t</em> &gt; 1</td>
+<td style="text-align: left;">In front of the projection plane/viewport</td>
+<td></td>
+</tr>
+</tbody>
+</table>
+</div>
+<figure>
+<img alt="Figure 2-9: A few points in parameter space" id="fig:parameter_space" src="images/04-parameter-space.png"/><figcaption aria-hidden="true">Figure 2-9: A few points in parameter space</figcaption>
+</figure>
+<p>Note that nothing in the intersection equation says that the sphere has to be <em>in front</em> of the camera; the equation will happily produce solutions for intersections <em>behind</em> the camera. Obviously, this isn’t what we want, so we should ignore any solutions with <span class="math inline">\(t &lt; 0\)</span>. To avoid further mathematical unpleasantness, we’ll restrict the solutions to <span class="math inline">\(t &gt; 1\)</span>; that is, we’ll render whatever is <em>beyond</em> the projection plane.</p>
+<p>On the other hand, we don’t want to put an upper bound on the value of <span class="math inline">\(t\)</span>; we want to see all objects in front of the camera, no matter how far away they are. However, because in later stages we <em>will</em> want to cut rays short, we’ll introduce this formalism now and give <span class="math inline">\(t\)</span> an upper value of <span class="math inline">\(+\infty\)</span> (for languages that can’t represent “infinity” directly, a really really big number does the trick).</p>
+<p>We can now formalize everything we’ve done so far with some pseudocode. As a general rule, we’ll assume the code has access to whatever data it needs, so we won’t bother explicitly passing around parameters such as the canvas and will focus on the really necessary ones.</p>
+<p>The main method now looks like Listing 2-2.</p>
+<pre data-caption="Listing 2-2: The main method" data-label="lst:raytrace_main">O = (0, 0, 0)
+for x = -Cw/2 to Cw/2 {
+    for y = -Ch/2 to Ch/2 {
+        D = CanvasToViewport(x, y)
+        color = TraceRay(O, D, 1, inf)
+        canvas.PutPixel(x, y, color)
+    }
+}</pre><figcaption class="code_caption">Listing 2-2: The main method</figcaption>
+<p>The <code>CanvasToViewport</code> function is very simple, and is shown in Listing 2-3. The constant <code>d</code> represents the distance between the camera and the projection plane.</p>
+<pre data-caption="Listing 2-3: The &lt;code&gt;CanvasToViewport&lt;/code&gt; function" data-label="lst:canvas_to_viewport">CanvasToViewport(x, y) {
+    return (x*Vw/Cw, y*Vh/Ch, d)
+}</pre><figcaption class="code_caption">Listing 2-3: The <code>CanvasToViewport</code> function</figcaption>
+<p>The <code>TraceRay</code> method (Listing 2-4) computes the intersection of the ray with every sphere and returns the color of the sphere at the nearest intersection inside the requested range of <span class="math inline">\(t\)</span>.</p>
+<pre data-caption="Listing 2-4: The &lt;code&gt;TraceRay&lt;/code&gt; method" data-label="lst:traceray">TraceRay(O, D, t_min, t_max) {
+    closest_t = inf
+    closest_sphere = NULL
+    for sphere in scene.spheres {
+        t1, t2 = IntersectRaySphere(O, D, sphere)
+        if t1 in [t_min, t_max] and t1 &lt; closest_t {
+            closest_t = t1
+            closest_sphere = sphere
+        }
+        if t2 in [t_min, t_max] and t2 &lt; closest_t {
+            closest_t = t2
+            closest_sphere = sphere
+        }
+    }
+    if closest_sphere == NULL {
+       ❶return BACKGROUND_COLOR
+    }
+    return closest_sphere.color
+}</pre><figcaption class="code_caption">Listing 2-4: The <code>TraceRay</code> method</figcaption>
+<p>In Listing 2-4, <code>O</code> represents the origin of the ray; although we’re tracing rays from the camera, which is placed at the origin, this won’t necessarily be the case in later stages, so it has to be a parameter. The same applies to <code>t_min</code> and <code>t_max</code>.</p>
+<p>Note that when the ray doesn’t intersect any sphere, we still need to return <em>some</em> color ❶—I’ve chosen white in most of these examples.</p>
+<p>Finally, <code>IntersectRaySphere</code> (Listing 2-5) just solves the quadratic equation.</p>
+<pre data-caption="Listing 2-5: The &lt;code&gt;IntersectRaySphere&lt;/code&gt; method" data-label="lst:intersect_ray_sphere">IntersectRaySphere(O, D, sphere) {
+    r = sphere.radius
+    CO = O - sphere.center
+
+    a = dot(D, D)
+    b = 2*dot(CO, D)
+    c = dot(CO, CO) - r*r
+
+    discriminant = b*b - 4*a*c
+    if discriminant &lt; 0 {
+        return inf, inf
+    }
+
+    t1 = (-b + sqrt(discriminant)) / (2*a)
+    t2 = (-b - sqrt(discriminant)) / (2*a)
+    return t1, t2
+}</pre><figcaption class="code_caption">Listing 2-5: The <code>IntersectRaySphere</code> method</figcaption>
+<p>To put all of this into practice, let’s define a very simple scene, shown in Figure 2-10.</p>
+<figure>
+<img alt="Figure 2-10: A very simple scene, viewed from above (left) and from the right (right)" id="fig:simple-scene" src="images/04-simple-scene.png"/><figcaption aria-hidden="true">Figure 2-10: A very simple scene, viewed from above (left) and from the right (right)</figcaption>
+</figure>
+<p>In pseudoscene language, it’s something like this:</p>
+<pre>viewport_size = 1 x 1
+projection_plane_d = 1
+sphere {
+    center = (0, -1, 3)
+    radius = 1
+    color = (255, 0, 0)  # Red
+}
+sphere {
+    center = (2, 0, 4)
+    radius = 1
+    color = (0, 0, 255)  # Blue
+}
+sphere {
+    center = (-2, 0, 4)
+    radius = 1
+    color = (0, 255, 0)  # Green
+}</pre>
+<p>When we run our algorithm on this scene, we’re finally rewarded with an incredibly awesome raytraced scene (Figure 2-11).</p>
+<figure>
+<img alt="Figure 2-11: An incredibly awesome raytraced scene" id="fig:incredibly_awesome" src="images/raytracer-01.png"/><figcaption aria-hidden="true">Figure 2-11: An incredibly awesome raytraced scene</figcaption>
+</figure>
+<p><a class="cgfs_demo" href="https://gabrielgambetta.com/cgfs/basic-rays-demo">Source code and live demo &gt;&gt;</a></p>
+<p>I know, it’s a bit of a letdown, isn’t it? Where are the reflections and the shadows and the polished look? Don’t worry, we’ll get there. This is a good first step. The spheres look like circles, which is better than if they looked like cats. The reason they don’t look quite like spheres is that we’re missing a key component of how human beings determine the shape of an object: the way it interacts with light. We’ll cover that in the next chapter.</p>
+<h2 id="summary"><a href="02-basic-raytracing.html#summary">Summary</a></h2>
+<p>In this chapter, we’ve laid down the foundations of our raytracer. We’ve chosen a fixed setup (the position and orientation of the camera and the viewport, as well as the size of the viewport); we’ve chosen representations for spheres and rays; we’ve explored the math necessary to figure out how spheres and rays interact; and we’ve put all this together to draw the spheres on the canvas using solid colors.</p>
+<p>The next chapters build on this by modeling the way the rays of light interact with objects in the scene in increasing detail.</p>
+<div class="cgfs-buy">
+Found this interesting? <br/> <b>Buy the book from <a href="https://nostarch.com/computer-graphics-scratch">No Starch Press</a> or <a href="https://www.amazon.com/Computer-Graphics-Scratch-Gabriel-Gambetta/dp/1718500769">Amazon</a>. </b>
+</div>
+<div class="centered">
+<b><a href="01-common-concepts.html">&lt;&lt; Introductory Concepts</a> | <a href="03-light.html">Light &gt;&gt;</a></b>
+</div>
+<div class="cgfs_navbar">
+<b>Computer Graphics From Scratch</b> · <a href="dedication.html">Dedication</a> | <a href="acknowledgements.html">Acknowledgements</a> | <a href="index.html">Table of Contents</a> | <a href="00-introduction.html">Introduction</a> | <a href="01-common-concepts.html">Introductory Concepts</a><br/><b>Part I: Raytracing</b> · Basic Raytracing | <a href="03-light.html">Light</a> | <a href="04-shadows-and-reflections.html">Shadows and Reflections</a> | <a href="05-extending-the-raytracer.html">Extending the Raytracer</a><br/><b>Part II: Rasterization</b> · <a href="06-lines.html">Lines</a> | <a href="07-filled-triangles.html">Filled Triangles</a> | <a href="08-shaded-triangles.html">Shaded Triangles</a> | <a href="09-perspective-projection.html">Perspective Projection</a> | <a href="10-describing-and-rendering-a-scene.html">Describing and Rendering a Scene</a> | <a href="11-clipping.html">Clipping</a> | <a href="12-hidden-surface-removal.html">Hidden Surface Removal</a> | <a href="13-shading.html">Shading</a> | <a href="14-textures.html">Textures</a> | <a href="15-extending-the-rasterizer.html">Extending the Rasterizer</a><br/><b>Appendixes</b> · <a href="A0-linear-algebra.html">Linear Algebra</a> | <a href="afterword.html">Afterword</a>
+</div>
+<div class="signup" id="signup">
+</div>
+<script>$("#signup").load("/signup.php?m=cgfs&r=02-basic-raytracing");</script>
+</div>
+<div class="copyright">© Gabriel Gambetta 2026</div>
+</body>
+</html>

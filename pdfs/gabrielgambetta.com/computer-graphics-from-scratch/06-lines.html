@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html class="cgfs" lang="en" xml:lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, user-scalable=yes" name="viewport"/>
+<title>Lines - Computer Graphics from Scratch - Gabriel Gambetta</title>
+<style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+</style>
+<link href="../css/style.css" rel="stylesheet"/>
+<!--[if lt IE 9]>
+<script src="//cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv-printshiv.min.js"></script>
+<![endif]-->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.2/MathJax.js?config=TeX-AMS-MML_HTMLorMML" type="text/javascript"></script>
+<script src="../js/jquery-3.2.1.min.js"></script>
+<!-- Google tag (gtag.js) -->
+<script async="" src="https://www.googletagmanager.com/gtag/js?id=G-M38VSQ9GME"></script>
+<script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-M38VSQ9GME');
+</script>
+</head>
+<body>
+<div class="main">
+<div class="nav">
+<a href="index.html">&lt;&lt; Computer Graphics from Scratch</a> <a class="homelink" href="https://gabrielgambetta.com/index.html">Gabriel Gambetta</a>
+</div>
+<div style="clear:both;"></div>
+<h1 id="ch:lines">Lines</h1>
+<p>In Part I of this book, we studied raytracing extensively and developed a raytracer that could render our test scene with accurate lighting, material properties, shadows, and reflection using relatively simple algorithms and math. This simplicity comes at a cost: performance. While non-real-time performance is fine for certain applications, such as architectural visualization or visual effects for movies, it’s not enough for other applications, such as video games.</p>
+<p>In this part of the book, we’ll explore an entirely different set of algorithms that favor performance over mathematical purity.</p>
+<p>Our raytracer starts from the camera and explores the scene through the viewport. For every pixel of the canvas, we answer the question, <em>“Which object of the scene is visible here?”</em> Now we’ll follow an approach that is, in some sense, the opposite: for every object in the scene, we’ll try to answer the question <em>“In which parts of the canvas will this object be visible?”</em></p>
+<p>It turns out we can develop algorithms that answer this new question much faster than raytracing could, as long as we’re willing to make some accuracy trade-offs. Later, we’ll explore how to use these fast algorithms to achieve results with a quality comparable to that of a raytracer.</p>
+<p>We’ll start from scratch again: we have a canvas of dimensions <span class="math inline">\(C_w\)</span> and <span class="math inline">\(C_h\)</span>, and we can set the color of individual pixels with <code>PutPixel()</code>, but nothing else. Let’s explore how to draw the simplest possible element on the canvas: a line between two points.</p>
+<h2 id="describing-lines"><a href="06-lines.html#describing-lines">Describing Lines</a></h2>
+<p>Suppose we have two canvas points, <span class="math inline">\(P_0\)</span> and <span class="math inline">\(P_1\)</span>, with coordinates <span class="math inline">\((x_0, y_0)\)</span> and <span class="math inline">\((x_1, y_1)\)</span> respectively. How can we draw the straight line segment between <span class="math inline">\(P_0\)</span> and <span class="math inline">\(P_1\)</span>?</p>
+<p>Let’s start by representing a line with parametric coordinates, just as we did with rays before (in fact, you can think of “rays” as lines in 3D). Any point <span class="math inline">\(P\)</span> on the line can be obtained by starting at <span class="math inline">\(P_0\)</span> and moving some distance along the direction from <span class="math inline">\(P_0\)</span> to <span class="math inline">\(P_1\)</span>:</p>
+<p><span class="math display">\[P = P_0 + t(P_1 - P_0)\]</span></p>
+<p>We can decompose this equation into two, one for each coordinate:</p>
+<p><span class="math display">\[x = x_0 + t\cdot(x_1 - x_0)\]</span></p>
+<p><span class="math display">\[y = y_0 + t\cdot(y_1 - y_0)\]</span></p>
+<p>Let’s take the first equation and solve for <span class="math inline">\(t\)</span>:</p>
+<p><span class="math display">\[x = x_0 + t\cdot(x_1 - x_0)\]</span></p>
+<p><span class="math display">\[x - x_0 = t\cdot(x_1 - x_0)\]</span></p>
+<p><span class="math display">\[{{x - x_0} \over {x_1 - x_0}} = t\]</span></p>
+<p>We can now plug this expression for <span class="math inline">\(t\)</span> into the second equation:</p>
+<p><span class="math display">\[y = y_0 + t\cdot(y_1 - y_0)\]</span></p>
+<p><span class="math display">\[y = y_0 + {{x - x_0} \over {x_1 - x_0}} \cdot (y_1 - y_0)\]</span></p>
+<p>Rearranging it a bit:</p>
+<p><span class="math display">\[y = y_0 + (x - x_0) \cdot {{y_1 - y_0} \over {x_1 - x_0}}\]</span></p>
+<p>Notice that <span class="math inline">\({{y_1 - y_0} \over {x_1 - x_0}}\)</span> is a constant that depends only on the endpoints of the segment; let’s call it <span class="math inline">\(a\)</span>. So we can rewrite the equation above as</p>
+<p><span class="math display">\[y = y_0 + a\cdot(x - x_0)\]</span></p>
+<p>What is <span class="math inline">\(a\)</span>? According to the way we’ve defined it, it measures the change in the <span class="math inline">\(y\)</span> coordinate per unit change in the <span class="math inline">\(x\)</span> coordinate; in other words, it’s a measure of the <em>slope</em> of the line.</p>
+<p>Let’s go back to the equation. Distributing the multiplication:</p>
+<p><span class="math display">\[y = y_0 + ax - ax_0\]</span></p>
+<p>Grouping the constants:</p>
+<p><span class="math display">\[y = ax + (y_0 - ax_0)\]</span></p>
+<p>Again, <span class="math inline">\((y_0 - ax_0)\)</span> depends only on the endpoints of the segment; let’s call it <span class="math inline">\(b\)</span>. Finally we get</p>
+<p><span class="math display">\[y = ax + b\]</span></p>
+<p>This is the standard formulation of a linear function, which can be used to represent <em>almost</em> any line. When we solved for <span class="math inline">\(t\)</span>, we added a division by <span class="math inline">\(x_1 - x_0\)</span> without thinking what happens if <span class="math inline">\(x_1 = x_0\)</span>. We can’t divide by zero, which means this formulation can’t represent lines with <span class="math inline">\(x_1 = x_0\)</span>—that is, vertical lines.</p>
+<p>To work around this issue, we’ll just ignore vertical lines for now and figure out how to deal with them later.</p>
+<h2 id="drawing-lines"><a href="06-lines.html#drawing-lines">Drawing Lines</a></h2>
+<p>We now have a way to get the value of <span class="math inline">\(y\)</span> for each value of <span class="math inline">\(x\)</span> we’re interested in. This gives us a pair <span class="math inline">\((x, y)\)</span> that satisfies the equation of the line.</p>
+<p>We can now write a first approximation of a function that draws a line segment from <span class="math inline">\(P_0\)</span> to <span class="math inline">\(P_1\)</span>. Let <code>x0</code> and <code>y0</code> be the <span class="math inline">\(x\)</span> and <span class="math inline">\(y\)</span> coordinates of <span class="math inline">\(P_0\)</span>, respectively, and <code>x1</code> and <code>y1</code> those of <span class="math inline">\(P_1\)</span>. Assuming <span class="math inline">\(x_0 &lt; x_1\)</span>, we can go from <span class="math inline">\(x_0\)</span> to <span class="math inline">\(x_1\)</span>, computing the value of <span class="math inline">\(y\)</span> for each value of <span class="math inline">\(x\)</span>, and drawing a pixel at these coordinates:</p>
+<pre>DrawLine(P0, P1, color) {
+    a = (y1 - y0) / (x1 - x0)
+    b = y0 - a * x0
+    for x = x0 to x1 {
+        y = a * x + b
+        canvas.PutPixel(x, y, color)
+    }
+}</pre>
+<p>Note that the division operator <code>/</code> is expected to perform real division, not integer division. This is despite <span class="math inline">\(x\)</span> and <span class="math inline">\(y\)</span> being integers in this context, as they represent coordinates of pixels on the canvas.</p>
+<p>Also note that we consider <code>for</code> loops to include the last value of the range. In C, C++, Java, and JavaScript, among others, this would be written as <code>for (x = x0; x &lt;= x1; ++x)</code>. We will be using this convention throughout this book.</p>
+<p>This function is a direct, naive implementation of the equation above. It works, but can we make it faster?</p>
+<p>We aren’t calculating values of <span class="math inline">\(y\)</span> for any arbitrary <span class="math inline">\(x\)</span>. On the contrary, we’re calculating them only at integer increments of <span class="math inline">\(x\)</span> and we’re doing so in order. Right after calculating <span class="math inline">\(y(x)\)</span>, we calculate <span class="math inline">\(y(x+1)\)</span>:</p>
+<p><span class="math display">\[y(x) = ax + b\]</span></p>
+<p><span class="math display">\[y(x+1) = a\cdot(x+1) + b\]</span></p>
+<p>We can manipulate that second expression a bit:</p>
+<p><span class="math display">\[y(x+1) = ax + a + b\]</span></p>
+<p><span class="math display">\[y(x+1) = (ax + b) + a\]</span></p>
+<p><span class="math display">\[y(x+1) = y(x) + a\]</span></p>
+<p>This shouldn’t be surprising; after all, the slope <span class="math inline">\(a\)</span> is the measure of how much <span class="math inline">\(y\)</span> changes when <span class="math inline">\(x\)</span> increases by 1, which is exactly what we’re doing here.</p>
+<p>This means we can compute the next value of <span class="math inline">\(y\)</span> just by taking the previous value of <span class="math inline">\(y\)</span> and adding the slope; no per-pixel multiplication is needed, which makes the function faster. At the beginning there’s no “previous value of <span class="math inline">\(y\)</span>,” so we start at <span class="math inline">\((x_0, y_0)\)</span>. Then we keep adding <span class="math inline">\(1\)</span> to <span class="math inline">\(x\)</span> and <span class="math inline">\(a\)</span> to <span class="math inline">\(y\)</span> until we get to <span class="math inline">\(x_1\)</span>.</p>
+<p>Again assuming that <span class="math inline">\(x_0 &lt; x_1\)</span>, we can rewrite the function as follows:</p>
+<pre>DrawLine(P0, P1, color) {
+    a = (y1 - y0) / (x1 - x0)
+    y = y0
+    for x = x0 to x1 {
+        canvas.PutPixel(x, y, color)
+        y = y + a
+    }
+}</pre>
+<p>So far we’ve been assuming that <span class="math inline">\(x_0 &lt; x_1\)</span>. There’s an easy workaround to support lines where that doesn’t hold: since the order in which we draw the pixels doesn’t matter, if we get a right-to-left line, we can just swap <code>P0</code> and <code>P1</code> to transform it into the left-to-right version of the same line, and draw it as before:</p>
+<pre>DrawLine(P0, P1, color) {
+    // Make sure x0 &lt; x1
+    if x0 &gt; x1 {
+        swap(P0, P1)
+    }
+    a = (y1 - y0) / (x1 - x0)
+    y = y0
+    for x = x0 to x1 {
+        canvas.PutPixel(x, y, color)
+        y = y + a
+    }
+}</pre>
+<p>Let’s use our function to draw a couple of lines. Figure 6-1 shows the line segment <span class="math inline">\((-200, -100)-(240, 120)\)</span>, and Figure 6-2 shows a close-up of the line.</p>
+<figure>
+<img alt="Figure 6-1: A straight line" id="fig:raster_line" src="images/raster-01.png"/><figcaption aria-hidden="true">Figure 6-1: A straight line</figcaption>
+</figure>
+<figure>
+<img alt="Figure 6-2: Zooming in on the straight line" id="fig:raster_line_closeup" src="images/raster-01b.png"/><figcaption aria-hidden="true">Figure 6-2: Zooming in on the straight line</figcaption>
+</figure>
+<p>The line appears jagged because we can only draw pixels on integer coordinates, and mathematical lines actually have zero width; what we’re drawing is a quantized approximation of the ideal line from <span class="math inline">\((-200, -100)-(240, 120)\)</span>. There are ways to draw prettier approximations of lines (you may want to look into MSAA, FXAA, SSAA, and TAA as possible entry points to an interesting set of rabbit holes). We won’t go there for two reasons: (1) it’s slower, and (2) our goal is not to draw pretty lines but to develop some basic algorithms to render 3D scenes.</p>
+<p>Let’s try another line, <span class="math inline">\((-50, -200)-(60, 240)\)</span>. Figure 6-3 shows the result and Figure 6-4 shows the corresponding close-up.</p>
+<figure>
+<img alt="Figure 6-3: Another straight line with a higher slope" id="fig:another_line" src="images/raster-01c.png"/><figcaption aria-hidden="true">Figure 6-3: Another straight line with a higher slope</figcaption>
+</figure>
+<figure>
+<img alt="Figure 6-4: Zooming in on the second straight line" id="fig:another_line_closeup" src="images/raster-01d.png"/><figcaption aria-hidden="true">Figure 6-4: Zooming in on the second straight line</figcaption>
+</figure>
+<p>Oops. What happened?</p>
+<p>The algorithm did exactly what we told it to; it went from left to right, computed one value of <span class="math inline">\(y\)</span> for each value of <span class="math inline">\(x\)</span>, and painted the corresponding pixel. The problem is that it computed <em>one</em> value of <span class="math inline">\(y\)</span> for each value of <span class="math inline">\(x\)</span>, while in this case we actually need <em>several</em> values of <span class="math inline">\(y\)</span> for some values of <span class="math inline">\(x\)</span>.</p>
+<p>This happens because we chose a formulation where <span class="math inline">\(y = f(x)\)</span>; in fact, it’s the same reason why we can’t draw vertical lines—an extreme case where all the values of <span class="math inline">\(y\)</span> correspond to the same value of <span class="math inline">\(x\)</span>.</p>
+<h2 id="drawing-lines-with-any-slope"><a href="06-lines.html#drawing-lines-with-any-slope">Drawing Lines with Any Slope</a></h2>
+<p>Choosing <span class="math inline">\(y = f(x)\)</span> was an arbitrary choice; we could equally have chosen to express the line as <span class="math inline">\(x = f(y)\)</span>. Reworking all the equations by exchanging <span class="math inline">\(x\)</span> and <span class="math inline">\(y\)</span>, we get the following algorithm:</p>
+<pre>DrawLine(P0, P1, color) {
+    // Make sure y0 &lt; y1
+    if y0 &gt; y1 {
+        swap(P0, P1)
+    }
+    a = (x1 - x0)/(y1 - y0)
+    x = x0
+    for y = y0 to y1 {
+        canvas.PutPixel(x, y, color)
+        x = x + a
+    }
+}</pre>
+<p>This is identical to the previous <code>DrawLine</code>, except the <span class="math inline">\(x\)</span> and <span class="math inline">\(y\)</span> computations have been exchanged. This one can handle vertical lines and will draw <span class="math inline">\((0, 0) - (50, 100)\)</span> correctly; but of course, it can’t handle horizontal lines at all, or draw <span class="math inline">\((0, 0) - (100, 50)\)</span> correctly! What to do?</p>
+<p>We can just keep both versions of the function and choose which one to use depending on the line we’re trying to draw. And the criterion is quite simple; does the line have more different values of <span class="math inline">\(x\)</span> than different values of <span class="math inline">\(y\)</span>? If there are more values of <span class="math inline">\(x\)</span> than <span class="math inline">\(y\)</span>, we use the first version; otherwise, we use the second.</p>
+<p>Listing 6-1 shows a version of <code>DrawLine</code> that handles all the cases.</p>
+<pre data-caption="Listing 6-1: A version of &lt;code&gt;DrawLine&lt;/code&gt; that handles all the cases" data-label="lst:draw_line_both_cases">DrawLine(P0, P1, color) {
+    dx = x1 - x0
+    dy = y1 - y0
+    if abs(dx) &gt; abs(dy) {
+        // Line is horizontal-ish
+        // Make sure x0 &lt; x1
+        if x0 &gt; x1 {
+            swap(P0, P1)
+        }
+        a = dy/dx
+        y = y0
+        for x = x0 to x1 {
+            canvas.PutPixel(x, y, color)
+            y = y + a
+        }
+    } else {
+        // Line is vertical-ish
+        // Make sure y0 &lt; y1
+        if y0 &gt; y1 {
+            swap(P0, P1)
+        }
+        a = dx/dy
+        x = x0
+        for y = y0 to y1 {
+            canvas.PutPixel(x, y, color)
+            x = x + a
+        }
+    }
+}</pre><figcaption class="code_caption">Listing 6-1: A version of <code>DrawLine</code> that handles all the cases</figcaption>
+<p>This certainly works, but it isn’t pretty. There’s a lot of code duplication, and the logic for selecting which function to use, the logic to compute the function values, and the pixel drawing itself are all intertwined. Surely we can do better!</p>
+<h2 id="the-linear-interpolation-function"><a href="06-lines.html#the-linear-interpolation-function">The Linear Interpolation Function</a></h2>
+<p>We have two linear functions <span class="math inline">\(y = f(x)\)</span> and <span class="math inline">\(x = f(y)\)</span>. To abstract away the fact that we’re dealing with pixels, let’s write it in a more generic way as <span class="math inline">\(d = f(i)\)</span>, where <span class="math inline">\(i\)</span> is the <em>independent variable</em>, the one we choose the values for, and <span class="math inline">\(d\)</span> is the <em>dependent variable</em>, the one whose value depends on the other and which we want to compute. In the horizontal-ish case, <span class="math inline">\(x\)</span> is the independent variable and <span class="math inline">\(y\)</span> is the dependent variable; in the vertical-ish case, it’s the other way around.</p>
+<p>Of course, <em>any</em> function can be written as <span class="math inline">\(d = f(i)\)</span>. We know two more things that completely define <em>our</em> function: the fact that it’s linear, and two of its values—that is, <span class="math inline">\(d_0 = f(i_0)\)</span> and <span class="math inline">\(d_1 = f(i_1)\)</span>. We can write a simple function that takes these values and returns a list of all the intermediate values of <span class="math inline">\(d\)</span>, assuming as before that <span class="math inline">\(i_0 &lt; i_1\)</span>:</p>
+<pre>Interpolate (i0, d0, i1, d1) {
+    values = []
+    a = (d1 - d0) / (i1 - i0)
+    d = d0
+    for i = i0 to i1 {
+        values.append(d)
+        d = d + a
+    }
+    return values
+}</pre>
+<p>This function has the same “shape” as the first two versions of <code>DrawLine</code>, but the variables are called <code>i</code> and <code>d</code> instead of <code>x</code> and <code>y</code>, and instead of drawing pixels, this one stores the values in a list.</p>
+<p>Note that the value of <span class="math inline">\(d\)</span> corresponding to <span class="math inline">\(i_0\)</span> is returned in <code>values[0]</code>, the value for <span class="math inline">\(i_0 + 1\)</span> in <code>values[1]</code>, and so on; in general, the value for <span class="math inline">\(i_n\)</span> is returned in <code>values[i_n - i_0]</code>, assuming <span class="math inline">\(i_n\)</span> is in the range <span class="math inline">\([i_0, i_1]\)</span>.</p>
+<p>There’s a corner case we need to consider: we may want to compute <span class="math inline">\(d = f(i)\)</span> for a single value of <span class="math inline">\(i\)</span>—that is, when <span class="math inline">\(i_0 = i_1\)</span>. In this case we can’t even compute <span class="math inline">\(a\)</span>, so we’ll treat it as a special case:</p>
+<pre>Interpolate (i0, d0, i1, d1) {
+    if i0 == i1 {
+       return [ d0 ]
+    }
+    values = []
+    a = (d1 - d0) / (i1 - i0)
+    d = d0
+    for i = i0 to i1 {
+        values.append(d)
+        d = d + a
+    }
+    return values
+}</pre>
+<p>As an implementation detail, and for the remainder of this book, the values of the independent variable <span class="math inline">\(i\)</span> are always integers, as they represent pixels, while the values of the dependent variable <span class="math inline">\(d\)</span> are always floating point values, as they represent values of a generic linear function.</p>
+<p>Now we can write <code>DrawLine</code> using <code>Interpolate</code>.</p>
+<pre data-caption="Listing 6-2: A version of &lt;code&gt;DrawLine&lt;/code&gt; that uses &lt;code&gt;Interpolate&lt;/code&gt;" data-label="lst:draw_line_interpolate">DrawLine(P0, P1, color) {
+    if abs(x1 - x0) &gt; abs(y1 - y0) {
+        // Line is horizontal-ish
+        // Make sure x0 &lt; x1
+        if x0 &gt; x1 {
+            swap(P0, P1)
+        }
+        ys = Interpolate(x0, y0, x1, y1)
+        for x = x0 to x1 {
+            canvas.PutPixel(x, ys[x - x0], color)
+        }
+    } else {
+        // Line is vertical-ish
+        // Make sure y0 &lt; y1
+        if y0 &gt; y1 {
+            swap(P0, P1)
+        }
+        xs = Interpolate(y0, x0, y1, x1)
+        for y = y0 to y1 {
+            canvas.PutPixel(xs[y - y0], y, color)
+        }
+    }
+}</pre><figcaption class="code_caption">Listing 6-2: A version of <code>DrawLine</code> that uses <code>Interpolate</code></figcaption>
+<p>This <code>DrawLine</code> can handle all cases correctly (Figure 6-5).</p>
+<figure>
+<img alt="Figure 6-5: The refactored algorithm handles all cases correctly." id="fig:line-drawing-all-cases" src="images/raster-02.png"/><figcaption aria-hidden="true">Figure 6-5: The refactored algorithm handles all cases correctly.</figcaption>
+</figure>
+<p><a class="cgfs_demo" href="https://gabrielgambetta.com/cgfs/lines-demo">Source code and live demo &gt;&gt;</a></p>
+<p>While this version isn’t much shorter than the previous one, it cleanly separates the computation of the intermediate values of <span class="math inline">\(y\)</span> and <span class="math inline">\(x\)</span> from the decision of which is the independent variable and from the pixel-drawing code itself.</p>
+<p>It might come as a surprise that this line algorithm is not the best or the fastest there is; that distinction probably belongs to <em>Bresenham’s Algorithm</em>. The reason to present this algorithm is twofold. First, it is easier to understand, which is an overriding principle in this book. Second, it gave us the <code>Interpolate</code> function, which we will use extensively in the rest of this book.</p>
+<h2 id="summary"><a href="06-lines.html#summary">Summary</a></h2>
+<p>In this chapter, we’ve taken the first steps to building a rasterizer. Using the only tool we have, <code>PutPixel</code>, we’ve developed an algorithm that can draw straight line segments on the canvas.</p>
+<p>We have also developed the <code>Interpolate</code> helper method, a way to efficiently compute values of a linear function. Make sure you understand it well before proceeding, because we’ll be using it a lot.</p>
+<p>In the next chapter, we’ll use <code>Interpolate</code> to draw more complex and interesting shapes on the canvas: triangles.</p>
+<div class="cgfs-buy">
+Found this interesting? <br/> <b>Buy the book from <a href="https://nostarch.com/computer-graphics-scratch">No Starch Press</a> or <a href="https://www.amazon.com/Computer-Graphics-Scratch-Gabriel-Gambetta/dp/1718500769">Amazon</a>. </b>
+</div>
+<div class="centered">
+<b><a href="05-extending-the-raytracer.html">&lt;&lt; Extending the Raytracer</a> | <a href="07-filled-triangles.html">Filled Triangles &gt;&gt;</a></b>
+</div>
+<div class="cgfs_navbar">
+<b>Computer Graphics From Scratch</b> · <a href="dedication.html">Dedication</a> | <a href="acknowledgements.html">Acknowledgements</a> | <a href="index.html">Table of Contents</a> | <a href="00-introduction.html">Introduction</a> | <a href="01-common-concepts.html">Introductory Concepts</a><br/><b>Part I: Raytracing</b> · <a href="02-basic-raytracing.html">Basic Raytracing</a> | <a href="03-light.html">Light</a> | <a href="04-shadows-and-reflections.html">Shadows and Reflections</a> | <a href="05-extending-the-raytracer.html">Extending the Raytracer</a><br/><b>Part II: Rasterization</b> · Lines | <a href="07-filled-triangles.html">Filled Triangles</a> | <a href="08-shaded-triangles.html">Shaded Triangles</a> | <a href="09-perspective-projection.html">Perspective Projection</a> | <a href="10-describing-and-rendering-a-scene.html">Describing and Rendering a Scene</a> | <a href="11-clipping.html">Clipping</a> | <a href="12-hidden-surface-removal.html">Hidden Surface Removal</a> | <a href="13-shading.html">Shading</a> | <a href="14-textures.html">Textures</a> | <a href="15-extending-the-rasterizer.html">Extending the Rasterizer</a><br/><b>Appendixes</b> · <a href="A0-linear-algebra.html">Linear Algebra</a> | <a href="afterword.html">Afterword</a>
+</div>
+<div class="signup" id="signup">
+</div>
+<script>$("#signup").load("/signup.php?m=cgfs&r=06-lines");</script>
+</div>
+<div class="copyright">© Gabriel Gambetta 2026</div>
+</body>
+</html>

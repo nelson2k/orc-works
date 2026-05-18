@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html class="cgfs" lang="en" xml:lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, user-scalable=yes" name="viewport"/>
+<title>Textures - Computer Graphics from Scratch - Gabriel Gambetta</title>
+<style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+</style>
+<link href="../css/style.css" rel="stylesheet"/>
+<!--[if lt IE 9]>
+<script src="//cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv-printshiv.min.js"></script>
+<![endif]-->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.2/MathJax.js?config=TeX-AMS-MML_HTMLorMML" type="text/javascript"></script>
+<script src="../js/jquery-3.2.1.min.js"></script>
+<!-- Google tag (gtag.js) -->
+<script async="" src="https://www.googletagmanager.com/gtag/js?id=G-M38VSQ9GME"></script>
+<script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-M38VSQ9GME');
+</script>
+</head>
+<body>
+<div class="main">
+<div class="nav">
+<a href="index.html">&lt;&lt; Computer Graphics from Scratch</a> <a class="homelink" href="https://gabrielgambetta.com/index.html">Gabriel Gambetta</a>
+</div>
+<div style="clear:both;"></div>
+<h1 id="ch:textures">Textures</h1>
+<p>Our rasterizer can render objects like cubes or spheres. But we usually don’t want to render abstract geometric objects like cubes and spheres; instead, we want to render real-world objects, like crates and planets or dice and marbles. In this chapter, we’ll look at how we can add visual detail to the surface of our objects by using <em>textures</em>.</p>
+<h2 id="painting-a-crate"><a href="14-textures.html#painting-a-crate">Painting a Crate</a></h2>
+<p>Let’s say we want our scene to have a wooden crate. How do we turn a cube into a wooden crate? One option is to add a lot of triangles to replicate the grain of the wood, the heads of the nails, and so on. This would work, but it would add a lot of geometric complexity to the scene, resulting in a big performance hit.</p>
+<p>Another option is to fake the details: instead of modifying the geometry of an object, we just “paint” something that looks like wood on top of it. Unless you’re looking at the crate from up close, you won’t notice the difference, and the computational cost is significantly lower than adding lots of geometric detail.</p>
+<p>Note that the two options aren’t incompatible: you can choose the right balance between adding geometry and painting on that geometry to achieve the image quality and performance you require. Since we know how to deal with geometry, we’ll explore the second option.</p>
+<p>First, we need an image to paint on our triangles; in this context, we call this image a <em>texture</em>. Figure 14-1 shows a wooden crate texture.</p>
+<figure>
+<img alt="Figure 14-1: Wooden crate texture (by Filter Forge— Attribution 2.0 Generic (CC BY 2.0) license)" id="fig:texture_crate" src="images/crate-texture.jpg"/><figcaption aria-hidden="true">Figure 14-1: Wooden crate texture (by Filter Forge— Attribution 2.0 Generic (CC BY 2.0) license)</figcaption>
+</figure>
+<p>Next, we need to specify how this texture is applied to the model. We can define this mapping on a per-triangle basis, by specifying which points of the texture should go on each vertex of the triangle (Figure 14-2).</p>
+<figure>
+<img alt="Figure 14-2: We associate a point in the texture with each vertex of the triangle." id="fig:texture_vertex_map" src="images/r17-texture-mapping.png"/><figcaption aria-hidden="true">Figure 14-2: We associate a point in the texture with each vertex of the triangle.</figcaption>
+</figure>
+<p>To define this mapping, we need a coordinate system to refer to points in the texture. Remember, a texture is just an image, represented as a rectangular array of pixels. We could use <span class="math inline">\(x\)</span> and <span class="math inline">\(y\)</span> coordinates and talk about pixels in the texture, but we’re already using these names for the canvas. Therefore, we use <span class="math inline">\(u\)</span> and <span class="math inline">\(v\)</span> for the texture coordinates and we call the texture’s pixels <em>texels</em> (a contraction of <em>tex</em>ture <em>el</em>ements).</p>
+<p>We’ll fix the origin of this <span class="math inline">\((u, v)\)</span> coordinate system at the top-left corner of the texture. We’ll also declare that <span class="math inline">\(u\)</span> and <span class="math inline">\(v\)</span> are real numbers in the range <span class="math inline">\([0, 1]\)</span>, regardless of the actual texel dimensions of the texture. This is very convenient for several reasons. For example, we may want to use a lower- or higher-resolution texture depending on how much RAM we have available; because we’re not tied to the actual pixel dimensions, we can change resolutions without having to modify the model itself. We can multiply <span class="math inline">\(u\)</span> and <span class="math inline">\(v\)</span> by the texture width and height respectively to get the actual texel indices <span class="math inline">\(tx\)</span> and <span class="math inline">\(ty\)</span>.</p>
+<p>The basic idea of texture mapping is simple: we compute the <span class="math inline">\((u, v)\)</span> coordinates for each pixel of the triangle, fetch the appropriate texel from the texture, and paint the pixel with that color. But the model only specifies <span class="math inline">\(u\)</span> and <span class="math inline">\(v\)</span> coordinates for the three vertices of the triangle, and we need them for each pixel . . .</p>
+<p>By now you can probably see where this is going. Yes, it’s our good friend linear interpolation. We can use attribute mapping to interpolate the values of <span class="math inline">\(u\)</span> and <span class="math inline">\(v\)</span> across the face of the triangle, giving us <span class="math inline">\((u, v)\)</span> at each pixel. From this we can compute <span class="math inline">\((tx, ty)\)</span>, fetch the texel, apply shading, and paint the pixel with the resulting color. You can see the result of doing this in Figure 14-3.</p>
+<figure>
+<img alt="Figure 14-3: The texture looks deformed when applied to the objects." id="fig:texture_linear_uv" src="images/raster-12b.png"/><figcaption aria-hidden="true">Figure 14-3: The texture looks deformed when applied to the objects.</figcaption>
+</figure>
+<p>The results are a little underwhelming. The exterior shape of the crates looks fine, but if you pay close attention to the diagonal planks, you’ll notice they look deformed, as if bent in weird ways. What went wrong?</p>
+<h2 id="perspective-correct-texture-mapping"><a href="14-textures.html#perspective-correct-texture-mapping">Perspective-Correct Texture Mapping</a></h2>
+<p>As in <a href="12-hidden-surface-removal.html">Chapter 12 (Hidden Surface Removal)</a>, we made an implicit assumption that turns out not to be true: namely, that <span class="math inline">\(u\)</span> and <span class="math inline">\(v\)</span> vary linearly across the screen. This is clearly not the case. Consider the wall of a very long corridor painted with alternating vertical black and white stripes. As the wall recedes into the distance, the vertical stripes should look thinner and thinner. If we make the <span class="math inline">\(u\)</span> coordinate vary linearly with <span class="math inline">\(x'\)</span>, we get incorrect results, as illustrated in Figure 14-4.</p>
+<figure>
+<img alt="Figure 14-4: Linear interpolation of u and v (left) doesn’t produce the expected perspective-correct results (right)." id="fig:linear_texture" src="images/r17-linear-texture.png"/><figcaption aria-hidden="true">Figure 14-4: Linear interpolation of <span class="math inline">\(u\)</span> and <span class="math inline">\(v\)</span> (left) doesn’t produce the expected perspective-correct results (right).</figcaption>
+</figure>
+<p>The situation is very similar to the one we encountered in <a href="12-hidden-surface-removal.html">Chapter 12 (Hidden Surface Removal)</a>, and the solution is also very similar: although <span class="math inline">\(u\)</span> and <span class="math inline">\(v\)</span> aren’t linear in screen coordinates, <span class="math inline">\(u \over z\)</span> and <span class="math inline">\(v \over z\)</span> are. (The proof is very similar to the <span class="math inline">\({1 \over z}\)</span> proof: consider that <span class="math inline">\(u\)</span> varies linearly in 3D space, and substitute <span class="math inline">\(x\)</span> and <span class="math inline">\(y\)</span> with their screen-space expressions.) Since we already have interpolated values of <span class="math inline">\(1 \over z\)</span> at each pixel, it’s enough to interpolate <span class="math inline">\(u \over z\)</span> and <span class="math inline">\(v \over z\)</span> and get <span class="math inline">\(u\)</span> and <span class="math inline">\(v\)</span> back:</p>
+<p><span class="math display">\[u = { {u \over z} \over {1 \over z}}\]</span></p>
+<p><span class="math display">\[v = { {v \over z} \over {1 \over z}}\]</span></p>
+<p>This produces the result we expect, as you can see in Figure 14-5.</p>
+<figure>
+<img alt="Figure 14-5: Linear interpolation of u/z and v/z does produce perspective-correct results." id="fig:texture_linear_uz_vz" src="images/raster-12.png"/><figcaption aria-hidden="true">Figure 14-5: Linear interpolation of <em>u</em>/<em>z</em> and <em>v</em>/<em>z</em> does produce perspective-correct results.</figcaption>
+</figure>
+<p>Figure 14-6 shows the two results side by side, to make it easier to appreciate the difference.</p>
+<figure>
+<img alt="Figure 14-6: A comparison of the “linear u and v” result (left) and the “linear u/z and v/z” result (right)" id="fig:texture_linear_comparison" src="images/raster-12-sxs.png"/><figcaption aria-hidden="true">Figure 14-6: A comparison of the “linear <em>u</em> and <em>v</em>” result (left) and the “linear <em>u</em>/<em>z</em> and <em>v</em>/<em>z</em>” result (right)</figcaption>
+</figure>
+<p><a class="cgfs_demo" href="https://gabrielgambetta.com/cgfs/textures-demo">Source code and live demo &gt;&gt;</a></p>
+<p>These examples look nice because the size of the texture and the size of the triangles we’re applying it to, measured in pixels, is roughly similar. But what happens if the triangle is several times bigger or smaller than the texture? We’ll explore those situations next.</p>
+<h2 id="bilinear-filtering"><a href="14-textures.html#bilinear-filtering">Bilinear Filtering</a></h2>
+<p>Suppose we place the camera very close to one of the cubes. We’ll see something like Figure 14-7.</p>
+<figure>
+<img alt="Figure 14-7: A textured object rendered from up close" id="fig:texture_nearest_close" src="images/texture-close-nearest.png"/><figcaption aria-hidden="true">Figure 14-7: A textured object rendered from up close</figcaption>
+</figure>
+<p>The image looks very blocky. Why does this happen? The triangle on the screen has more pixels than the texture has texels, so each texel is mapped to many consecutive pixels.</p>
+<p>We are interpolating texture coordinates <span class="math inline">\(u\)</span> and <span class="math inline">\(v\)</span>, which are real values between <span class="math inline">\(0.0\)</span> and <span class="math inline">\(1.0\)</span>. Later, given the texture dimensions <span class="math inline">\(w\)</span> and <span class="math inline">\(h\)</span>, we map the <span class="math inline">\(u\)</span> and <span class="math inline">\(v\)</span> coordinates to <span class="math inline">\(tx\)</span> and <span class="math inline">\(ty\)</span> texel coordinates by multiplying them by <span class="math inline">\(w\)</span> and <span class="math inline">\(h\)</span> respectively. But because a texture is an array of pixels with integer indices, we round <span class="math inline">\(tx\)</span> and <span class="math inline">\(ty\)</span> down to the nearest integer. For this reason, this basic technique is called <em>nearest neighbor filtering</em>.</p>
+<p>Even if <span class="math inline">\((u, v)\)</span> varies smoothly across the face of the triangle, the resulting texel coordinates “jump” from one whole pixel to the next, causing the blocky appearance we can see in Figure 14-7.</p>
+<p>We can do better. Instead of rounding <span class="math inline">\(tx\)</span> and <span class="math inline">\(ty\)</span> down, we can interpret a fractional texel coordinate <span class="math inline">\((tx, ty)\)</span> as describing a position <em>between</em> four integer texel coordinates (obtained by the combinations of rounding <span class="math inline">\(tx\)</span> and <span class="math inline">\(ty\)</span> up and down). We can take the four colors of the surrounding integer texels, and compute a linearly interpolated color for the fractional texel. This will produce a noticeably smoother result (Figure 14-8).</p>
+<figure>
+<img alt="Figure 14-8: A textured object rendered from up close, using interpolated colors" id="fig:texture_bilinear_texture" src="images/texture-close-linear.png"/><figcaption aria-hidden="true">Figure 14-8: A textured object rendered from up close, using interpolated colors</figcaption>
+</figure>
+<p>Let’s call the four surrounding pixels <span class="math inline">\(TL\)</span>, <span class="math inline">\(TR\)</span>, <span class="math inline">\(BL\)</span>, and <span class="math inline">\(BR\)</span> (for top-left, top-right, bottom-left, and bottom-right, respectively). Let’s take the fractional parts of <span class="math inline">\(tx\)</span> and <span class="math inline">\(ty\)</span> and call them <span class="math inline">\(fx\)</span> and <span class="math inline">\(fy\)</span>. Figure 14-9 shows <span class="math inline">\(C\)</span>, the exact position described by <span class="math inline">\((tx, ty)\)</span>, surrounded by the texels at integer coordinates, and its distance to them.</p>
+<figure>
+<img alt="Figure 14-9: We linearly interpolate a color at C from the four texels that surround it." id="fig:texture_bilinear_weights" src="images/bilinear-texture-weights.png"/><figcaption aria-hidden="true">Figure 14-9: We linearly interpolate a color at <em>C</em> from the four texels that surround it.</figcaption>
+</figure>
+<p>First, we linearly interpolate the color at <span class="math inline">\(CT\)</span>, which is between <span class="math inline">\(TL\)</span> and <span class="math inline">\(TR\)</span>:</p>
+<p><span class="math display">\[CT = (1 - fx) \cdot TL + fx \cdot TR\]</span></p>
+<p>Note that the weight for <span class="math inline">\(TR\)</span> is <span class="math inline">\(fx\)</span>, not <span class="math inline">\((1 - fx)\)</span>. This is because as <span class="math inline">\(fx\)</span> becomes closer to 1.0, we want <span class="math inline">\(CT\)</span> to become closer to <span class="math inline">\(TR\)</span>. Indeed, if <span class="math inline">\(fx = 0.0\)</span>, then <span class="math inline">\(CT = TL\)</span>, and if <span class="math inline">\(fx = 1.0\)</span>, then <span class="math inline">\(CT = TR\)</span>.</p>
+<p>We can compute <span class="math inline">\(CB\)</span>, between <span class="math inline">\(BL\)</span> and <span class="math inline">\(BR\)</span>, in a similar way:</p>
+<p><span class="math display">\[CB = (1 - fx) \cdot BL + fx \cdot BR\]</span></p>
+<p>Finally, we compute <span class="math inline">\(C\)</span>, linearly interpolating between <span class="math inline">\(CT\)</span> and <span class="math inline">\(CB\)</span>:</p>
+<p><span class="math display">\[C = (1 - fy) \cdot CT + fy \cdot CB\]</span></p>
+<p>In pseudocode, we can write a function to get the interpolated color corresponding to a fractional texel:</p>
+<pre>GetTexel(texture, tx, ty) {
+  fx = frac(tx)
+  fy = frac(ty)
+  tx = floor(tx)
+  ty = floor(ty)
+
+  TL = texture[tx][ty]
+  TR = texture[tx+1][ty]
+  BL = texture[tx][ty+1]
+  BR = texture[tx+1][ty+1]
+
+  CT = fx * TR + (1 - fx) * TL
+  CB = fx * BR + (1 - fx) * BL
+
+  return fy * CB + (1 - fy) * CT
+}</pre>
+<p>This function uses <code>floor()</code>, which rounds a number down to the nearest integer, and <code>frac()</code>, which returns the fractional part of a number, and can be defined as <code>x - floor(x)</code>.</p>
+<p>This technique is called <em>bilinear filtering</em> (because we’re doing linear interpolation twice, once in each dimension).</p>
+<h2 id="mipmapping"><a href="14-textures.html#mipmapping">Mipmapping</a></h2>
+<p>Let’s consider the opposite situation, rendering an object from far away. In this case, the texture has many more texels than the triangle has pixels. It might be less evident why this is a problem, so we’ll use a carefully chosen situation to illustrate.</p>
+<p>Consider a square texture in which half the pixels are black and half the pixels are white, laid out in a checkerboard pattern (Figure 14-10).</p>
+<figure>
+<img alt="Figure 14-10: A black-and-white checkerboard texture" id="fig:texture_checkerboard" src="images/checkerboard.png"/><figcaption aria-hidden="true">Figure 14-10: A black-and-white checkerboard texture</figcaption>
+</figure>
+<p>Suppose we map this texture onto a square in the viewport such that when it’s drawn on the canvas, the width of the square in pixels is exactly half the width of the texture in texels. This means that only one-quarter of the texels will actually be used.</p>
+<p>We’d intuitively expect the square to look gray. However, given the way we’re doing texture mapping, we might be unlucky and get all the white pixels, or all the black pixels. It’s true that we might be lucky and get a 50/50 combination of black and white pixels, but the 50-percent gray we expect is not guaranteed. Take a look at Figure 14-11, which shows the unlucky case.</p>
+<figure>
+<img alt="Figure 14-11: Mapping a big texture on a small object can lead to unexpected results, depending on which texels happen to be selected." id="fig:texture_checkerboard_cases" src="images/bad-texture-minification.png"/><figcaption aria-hidden="true">Figure 14-11: Mapping a big texture on a small object can lead to unexpected results, depending on which texels happen to be selected.</figcaption>
+</figure>
+<p>How to fix this? Each pixel of the square represents, in some sense, a <span class="math inline">\(2\times2\)</span> texel area of the texture, so we could compute the average color of that area and use that color for the pixel. Averaging black and white pixels would give us the gray we are looking for.</p>
+<p>However, this can get very computationally expensive very fast. Suppose the square is even farther away, so that it’s one-tenth of the texture width. This means every pixel in the square represents a <span class="math inline">\(10\times10\)</span> texel area of the texture. We’d have to compute the average of 100 texels for every pixel we want to render!</p>
+<p>Fortunately, this is one of those situations where we can replace a lot of computation with a bit of extra memory. Let’s go back to the initial situation, where the square was half the width of the texture. Instead of computing the average of the four texels we want to render for every pixel again and again, we could <em>precompute</em> a texture of half the original size, where every texel in the half-size texture is the average of the corresponding four texels in the original texture. Later, when the time comes to render a pixel, we can just look up the texel in this smaller texture, or even apply bilinear filtering as described in the previous section.</p>
+<p>This way, we get the better rendering quality of averaging four pixels, but at the computational cost of a single texture lookup. This does require a bit of preprocessing time (when loading a texture, for example) and a bit more memory (to store the full-size and half-size textures), but in general it’s a worthwhile trade-off.</p>
+<p>What about the <span class="math inline">\(10\times\)</span> size scenario we discussed above? We can take this technique further and also precompute one-quarter-, one-eighth-, and one-sixteenth-size versions of the original texture (down to a <span class="math inline">\(1\times1\)</span> texture if we wanted to). Then, when rendering a triangle, we’d use the texture whose scale best matches its size and get all the benefits of averaging hundreds, if not thousands, of pixels at no extra runtime cost.</p>
+<p>This powerful technique is called <em>mipmapping</em>. The name is derived from the Latin expression <em>multum in parvo</em>, which means “much in little.”</p>
+<p>Computing all these smaller-scale textures does come at a memory cost, but it’s surprisingly smaller than you might think.</p>
+<p>Say the original area of the texture, in texels, is <span class="math inline">\(A\)</span>, and its width is <span class="math inline">\(w\)</span>. The width of the half-width texture is <span class="math inline">\(w \over 2\)</span>, but it requires only <span class="math inline">\(A \over 4\)</span> texels; the quarter-width texture requires <span class="math inline">\(A \over 16\)</span> texels; and so on. Figure 14-12 shows the original texture and the first three reduced versions.</p>
+<figure>
+<img alt="Figure 14-12: A texture and its progressively smaller mipmaps" id="fig:texture_mip_sizes" src="images/mipmap-levels.png"/><figcaption aria-hidden="true">Figure 14-12: A texture and its progressively smaller mipmaps</figcaption>
+</figure>
+<p>We can express the sum of the texture sizes as an infinite series:</p>
+<p><span class="math display">\[A + \frac{A}{4} + \frac{A}{16} + \frac{A}{64} + .\, .\, . = \sum_{n=0}^\infty \frac{A}{4^n}\]</span></p>
+<p>This series converges to <span class="math inline">\(A \cdot\)</span> 4/3, or <span class="math inline">\(A \cdot 1.3333\)</span>, meaning that all the smaller textures down to <span class="math inline">\(1\times1\)</span> texel only take one-third more space than the original texture.</p>
+<h2 id="linear-filtering"><a href="14-textures.html#linear-filtering">Trilinear Filtering</a></h2>
+<p>Let’s take this one step further. Imagine an object far away from the camera. We render it using the mipmap level most appropriate for its size.</p>
+<p>Now imagine the camera moves toward the object. At some point, the choice of the most appropriate mipmap level will change from one frame to the next, and this will cause a subtle but noticeable difference.</p>
+<p>When choosing a mipmap level, we choose the one that most closely matches the relative size of the texture and the square. For example, for the square that was 10 times smaller than the texture, we might choose the mipmap level that is 8 times smaller than the original texture, and apply bilinear filtering on it. However, we could also consider the <em>two</em> mipmap levels that most closely match the relative size (in this case, the ones 8 and 16 times smaller) and linearly interpolate between them, depending on the “distance” between the mipmap size ratio and the actual size ratio.</p>
+<p>Because the colors that come from each mipmap level are bilinearly interpolated and we apply another linear interpolation on top, this technique is called <em>trilinear filtering</em>.</p>
+<h2 id="summary"><a href="14-textures.html#summary">Summary</a></h2>
+<p>In this chapter, we have given our rasterizer a massive jump in quality. Before this chapter, each triangle could have a single color; now we can draw arbitrarily complex images on them.</p>
+<p>We have also discussed how to make sure the textured triangles look good, regardless of the relative size of the triangle and the texture. We presented bilinear filtering, mipmapping, and trilinear filtering as solutions to the most common causes of low-quality textures.</p>
+<div class="cgfs-buy">
+Found this interesting? <br/> <b>Buy the book from <a href="https://nostarch.com/computer-graphics-scratch">No Starch Press</a> or <a href="https://www.amazon.com/Computer-Graphics-Scratch-Gabriel-Gambetta/dp/1718500769">Amazon</a>. </b>
+</div>
+<div class="centered">
+<b><a href="13-shading.html">&lt;&lt; Shading</a> | <a href="15-extending-the-rasterizer.html">Extending the Rasterizer &gt;&gt;</a></b>
+</div>
+<div class="cgfs_navbar">
+<b>Computer Graphics From Scratch</b> · <a href="dedication.html">Dedication</a> | <a href="acknowledgements.html">Acknowledgements</a> | <a href="index.html">Table of Contents</a> | <a href="00-introduction.html">Introduction</a> | <a href="01-common-concepts.html">Introductory Concepts</a><br/><b>Part I: Raytracing</b> · <a href="02-basic-raytracing.html">Basic Raytracing</a> | <a href="03-light.html">Light</a> | <a href="04-shadows-and-reflections.html">Shadows and Reflections</a> | <a href="05-extending-the-raytracer.html">Extending the Raytracer</a><br/><b>Part II: Rasterization</b> · <a href="06-lines.html">Lines</a> | <a href="07-filled-triangles.html">Filled Triangles</a> | <a href="08-shaded-triangles.html">Shaded Triangles</a> | <a href="09-perspective-projection.html">Perspective Projection</a> | <a href="10-describing-and-rendering-a-scene.html">Describing and Rendering a Scene</a> | <a href="11-clipping.html">Clipping</a> | <a href="12-hidden-surface-removal.html">Hidden Surface Removal</a> | <a href="13-shading.html">Shading</a> | Textures | <a href="15-extending-the-rasterizer.html">Extending the Rasterizer</a><br/><b>Appendixes</b> · <a href="A0-linear-algebra.html">Linear Algebra</a> | <a href="afterword.html">Afterword</a>
+</div>
+<div class="signup" id="signup">
+</div>
+<script>$("#signup").load("/signup.php?m=cgfs&r=14-textures");</script>
+</div>
+<div class="copyright">© Gabriel Gambetta 2026</div>
+</body>
+</html>

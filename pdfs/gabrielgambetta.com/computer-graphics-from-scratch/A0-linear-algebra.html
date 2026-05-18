@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html class="cgfs" lang="en" xml:lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, user-scalable=yes" name="viewport"/>
+<title>Linear Algebra - Computer Graphics from Scratch - Gabriel Gambetta</title>
+<style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+</style>
+<link href="../css/style.css" rel="stylesheet"/>
+<!--[if lt IE 9]>
+<script src="//cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv-printshiv.min.js"></script>
+<![endif]-->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.2/MathJax.js?config=TeX-AMS-MML_HTMLorMML" type="text/javascript"></script>
+<script src="../js/jquery-3.2.1.min.js"></script>
+<!-- Google tag (gtag.js) -->
+<script async="" src="https://www.googletagmanager.com/gtag/js?id=G-M38VSQ9GME"></script>
+<script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-M38VSQ9GME');
+</script>
+</head>
+<body>
+<div class="main">
+<div class="nav">
+<a href="index.html">&lt;&lt; Computer Graphics from Scratch</a> <a class="homelink" href="https://gabrielgambetta.com/index.html">Gabriel Gambetta</a>
+</div>
+<div style="clear:both;"></div>
+<h1 class="unnumbered" id="ch:linear_algebra_appendix">Linear Algebra</h1>
+<p>This appendix serves as a cheat sheet for linear algebra. The subject is presented as a set of tools, their properties, and what you can use them for. If you’re interested in the theory behind all this, you can pick up any introductory linear algebra textbook.</p>
+<p>The focus here is exclusively on 2D and 3D algebra, as that’s what’s required in this book.</p>
+<h2 id="points"><a href="A0-linear-algebra.html#points">Points</a></h2>
+<p>A <em>point</em> represents a position within a coordinate system.</p>
+<p>We represent a point as a sequence of numbers between parentheses—for example, <span class="math inline">\((4, 3)\)</span>. We refer to points using capital letters, such as <span class="math inline">\(P\)</span> or <span class="math inline">\(Q\)</span>.</p>
+<p>Each of the numbers in the point’s sequence is called a <em>coordinate</em>. The number of coordinates is the point’s <em>dimension</em>. A point with two coordinates is called two-dimensional, or 2D.</p>
+<p>The order of the numbers is important; <span class="math inline">\((4, 3)\)</span> is not the same as <span class="math inline">\((3, 4)\)</span>. By convention, the coordinates are called <span class="math inline">\(x\)</span> and <span class="math inline">\(y\)</span> in 2D, and <span class="math inline">\(x\)</span>, <span class="math inline">\(y\)</span>, and <span class="math inline">\(z\)</span> in 3D; so the point <span class="math inline">\((4, 3)\)</span> has an <span class="math inline">\(x\)</span> coordinate of <span class="math inline">\(4\)</span> and a <span class="math inline">\(y\)</span> coordinate of <span class="math inline">\(3\)</span>. Figure A-1 shows <span class="math inline">\(P\)</span>, a 2D point with coordinates <span class="math inline">\((4, 3)\)</span>.</p>
+<figure>
+<img alt="Figure A-1: The 2D point P has coordinates (4, 3)." id="fig:aa-points" src="images/aa-points.png"/><figcaption aria-hidden="true">Figure A-1: The 2D point <em>P</em> has coordinates (4, 3).</figcaption>
+</figure>
+<p>We can also refer to specific coordinates of a point using a subscript, like <span class="math inline">\(P_x\)</span> or <span class="math inline">\(Q_y\)</span>. So the point <span class="math inline">\(P\)</span> can also be written as <span class="math inline">\((P_x, P_y, P_z)\)</span> when convenient.</p>
+<h2 id="vectors"><a href="A0-linear-algebra.html#vectors">Vectors</a></h2>
+<p>A <em>vector</em> represents the difference between two points. Intuitively, imagine a vector as an arrow that connects a point to another point; alternatively, think of it as the instructions to get from one point to another.</p>
+<h3 id="representing-vectors"><a href="A0-linear-algebra.html#representing-vectors">Representing Vectors</a></h3>
+<p>We represent a vector as a set of numbers between parentheses, and refer to them using a capital letter. This is the same representation we use for points, so we add a small arrow on top to remember they’re vectors and not points. For example, <span class="math inline">\((2, 1)\)</span> is a vector, which we might decide to call <span class="math inline">\(\vec{A}\)</span>. Figure A-2 shows two equal vectors, <span class="math inline">\(\vec{A}\)</span> and <span class="math inline">\(\vec{B}\)</span>.</p>
+<figure>
+<img alt="Figure A-2: The vectors \vec{\mathsf{A}} and \vec{\mathsf{B}} are equal. Vectors don’t have a position." id="fig:aa-vectors" src="images/aa-vectors.png"/><figcaption aria-hidden="true">Figure A-2: The vectors <span class="math inline">\(\vec{\mathsf{A}}\)</span> and <span class="math inline">\(\vec{\mathsf{B}}\)</span> are equal. Vectors don’t have a position.</figcaption>
+</figure>
+<p>Despite sharing their representation with points, vectors don’t represent or have a position; they are, after all, the <em>difference</em> between two positions. When you have a diagram like Figure A-2, you have to draw vectors somewhere; but the vectors <span class="math inline">\(\vec{A}\)</span> and <span class="math inline">\(\vec{B}\)</span> are equal, because they represent the same displacement.</p>
+<p>In addition, the point <span class="math inline">\((2, 1)\)</span> and the vector <span class="math inline">\((2, 1)\)</span> are unrelated. Sure, the vector <span class="math inline">\((2, 1)\)</span> goes from <span class="math inline">\((0, 0)\)</span> to <span class="math inline">\((2, 1)\)</span>, but it’s equally true that it goes from, say, <span class="math inline">\((5, 5)\)</span> to <span class="math inline">\((7, 6)\)</span>.</p>
+<p>Vectors are characterized by their <em>direction</em> (the angle in which they point) and their <em>magnitude</em> (how long they are).</p>
+<p>The direction can be further decomposed into <em>orientation</em> (the slope of the line they’re on) and <em>sense</em> (which of the possible two ways along that line they point). For example, a vector pointing right and a vector pointing left both have the same horizontal orientation, but they have the opposite sense. However, we don’t make this distinction anywhere in this book.</p>
+<h3 id="vector-magnitude"><a href="A0-linear-algebra.html#vector-magnitude">Vector Magnitude</a></h3>
+<p>You can compute the magnitude of a vector from its coordinates. The magnitude is also called the <em>length</em> or <em>norm</em> of the vector. It’s denoted by putting the vector between vertical pipes, as in <span class="math inline">\(|\vec{V}|\)</span>, and it’s computed as follows:</p>
+<p><span class="math display">\[|\vec{V}| = \sqrt{{V_x}^2 + {V_y}^2 + {V_z}^2}\]</span></p>
+<p>A vector with a magnitude equal to <span class="math inline">\(1.0\)</span> is called a <em>unit vector</em>.</p>
+<h2 id="point-and-vector-operations"><a href="A0-linear-algebra.html#point-and-vector-operations">Point and Vector Operations</a></h2>
+<p>Now that we’ve defined points and vectors, let’s explore what we can do with them.</p>
+<h3 id="subtracting-points"><a href="A0-linear-algebra.html#subtracting-points">Subtracting Points</a></h3>
+<p>A vector is the difference between two points. In other words, you can subtract two points and get a vector:</p>
+<p><span class="math display">\[\vec{V} = P - Q\]</span></p>
+<p>In this case, you can think of <span class="math inline">\(\vec{V}\)</span> as “going” from <span class="math inline">\(Q\)</span> to <span class="math inline">\(P\)</span>, as in Figure A-3.</p>
+<figure>
+<img alt="Figure A-3: The vector \vec{\mathsf{V}} is the difference between P and Q." id="fig:aa-point-diff" src="images/aa-point-diff.png"/><figcaption aria-hidden="true">Figure A-3: The vector <span class="math inline">\(\vec{\mathsf{V}}\)</span> is the difference between <em>P</em> and <em>Q</em>.</figcaption>
+</figure>
+<p>Algebraically, you subtract each of the coordinates separately:</p>
+<p><span class="math display">\[(V_x, V_y, V_z) = (P_x, P_y, P_z) - (Q_x, Q_y, Q_z) = (P_x - Q_x, P_y - Q_y, P_z - Q_z)\]</span></p>
+<h3 id="adding-a-point-and-a-vector"><a href="A0-linear-algebra.html#adding-a-point-and-a-vector">Adding a Point and a Vector</a></h3>
+<p>We can rewrite the equation above coordinate by coordinate:</p>
+<p><span class="math display">\[V_x = P_x - Q_x\]</span> <span class="math display">\[V_y = P_y - Q_y\]</span> <span class="math display">\[V_z = P_z - Q_z\]</span></p>
+<p>These are just numbers, so all the usual rules apply. This means you can do this:</p>
+<p><span class="math display">\[Q_x + V_x = P_x\]</span> <span class="math display">\[Q_y + V_y = P_y\]</span> <span class="math display">\[Q_z + V_z = P_z\]</span></p>
+<p>And grouping the coordinates again,</p>
+<p><span class="math display">\[Q + \vec{V} = P\]</span></p>
+<p>In other words, you can add a vector to a point and get a new point. This makes intuitive and geometric sense; given a starting position (a point) and a displacement (a vector), you end up in a new position (another point). Figure A-4 presents an example.</p>
+<figure>
+<img alt="Figure A-4: Adding \vec{\mathsf{V}} to Q gives us P." id="fig:aa-point-plus-vector" src="images/aa-point-plus-vector.png"/><figcaption aria-hidden="true">Figure A-4: Adding <span class="math inline">\(\vec{\mathsf{V}}\)</span> to <em>Q</em> gives us <em>P</em>.</figcaption>
+</figure>
+<h3 id="adding-vectors"><a href="A0-linear-algebra.html#adding-vectors">Adding Vectors</a></h3>
+<p>You can add two vectors. Geometrically, imagine putting one vector “after” another, as in Figure A-5.</p>
+<figure>
+<img alt="Figure A-5: Adding two vectors. Addition is commutative. Remember, vectors don’t have a position." id="fig:aa-vector-plus-vector" src="images/aa-vector-plus-vector.png"/><figcaption aria-hidden="true">Figure A-5: Adding two vectors. Addition is commutative. Remember, vectors don’t have a position.</figcaption>
+</figure>
+<p>As you can see, vector addition is commutative—that is, the order of the operands doesn’t matter. In the diagram, we can see that <span class="math inline">\(\vec{V} + \vec{W} = \vec{W} + \vec{V}\)</span>.</p>
+<p>Algebraically, you add the coordinates individually:</p>
+<p><span class="math display">\[\vec{V} + \vec{W} = (V_x, V_y, V_z) + (W_x, W_y, W_z) = (V_x + W_x, V_y + W_y, V_z + W_z)\]</span></p>
+<h3 id="multiplying-a-vector-by-a-number"><a href="A0-linear-algebra.html#multiplying-a-vector-by-a-number">Multiplying a Vector by a Number</a></h3>
+<p>You can multiply a vector by a number. This is called the <em>scalar product</em>. This makes the vector shorter or longer, as you can see in Figure A-6.</p>
+<figure>
+<img alt="Figure A-6: Multiplying a vector by a number" id="fig:aa-vector-scaling" src="images/aa-vector-scaling.png"/><figcaption aria-hidden="true">Figure A-6: Multiplying a vector by a number</figcaption>
+</figure>
+<p>If the number is negative, the vector will point the other way; this means it changes its sense and therefore its direction. But multiplying a vector by a number never changes its orientation—that is, it will remain along the same line.</p>
+<p>Algebraically, you multiply the coordinates individually:</p>
+<p><span class="math display">\[k \cdot \vec{V} = k \cdot (V_x, V_y, V_z) = (k \cdot V_x, k \cdot V_y, k \cdot V_z)\]</span></p>
+<p>You can also divide a vector by a number. Just like with numbers, dividing by <span class="math inline">\(k\)</span> is equivalent to multiplying by <span class="math inline">\(\frac{1}{k}\)</span>. As usual, division by zero doesn’t work.</p>
+<p>One of the applications of vector multiplication and division is to <em>normalize</em> a vector—that is, to turn it into a unit vector. This changes the magnitude of the vector to <span class="math inline">\(1.0\)</span>, but doesn’t change its other properties. To do this, we just need to divide the vector by its length:</p>
+<p><span class="math display">\[\vec{V_{normalized}} = \frac{\vec{V}}{|\vec{V}|}\]</span></p>
+<h3 id="multiplying-vectors"><a href="A0-linear-algebra.html#multiplying-vectors">Multiplying Vectors</a></h3>
+<p>You can multiply a vector by another vector. Interestingly, there are many ways in which you can define an operation like this. We’re going to focus on two kinds of multiplication that are useful to us: the dot product and the cross product.</p>
+<h4 id="dot-product"><a href="A0-linear-algebra.html#dot-product">Dot Product</a></h4>
+<p>The <em>dot product</em> between two vectors (also called the <em>inner product</em>) gives you a number. It’s expressed using the dot operator, as in <span class="math inline">\(\vec{V} \cdot \vec{W}\)</span>. It’s also written between angle braces, as in <span class="math inline">\(\langle \vec{V}, \vec{W} \rangle\)</span>.</p>
+<p>Algebraically, you multiply the coordinates individually and add them:</p>
+<p><span class="math display">\[\langle \vec{V}, \vec{W} \rangle = \langle(V_x, V_y, V_z), (W_x, W_y, W_z)\rangle = V_x \cdot W_x + V_y \cdot W_y + V_z \cdot W_z\]</span></p>
+<p>Geometrically, the dot product of <span class="math inline">\(\vec{V}\)</span> and <span class="math inline">\(\vec{W}\)</span> is related to their lengths and to the angle <span class="math inline">\(\alpha\)</span> between them. The exact formula neatly ties together linear algebra and trigonometry:</p>
+<p><span class="math display">\[\langle \vec{V}, \vec{W} \rangle = |\vec{V}| \cdot |\vec{W}| \cdot \textrm{cos}(\alpha)\]</span></p>
+<p>Either of these formulas help us see that the dot product is commutative (that is, <span class="math inline">\(\langle \vec{V}, \vec{W} \rangle\)</span> = <span class="math inline">\(\langle \vec{W}, \vec{V} \rangle\)</span>) and that it’s associative with respect to a scalar product (that is, <span class="math inline">\(k \cdot \langle \vec{V}, \vec{W} \rangle = \langle k \cdot \vec{V}, \vec{W} \rangle\)</span>).</p>
+<p>An interesting consequence of the second formula is that if <span class="math inline">\(\vec{V}\)</span> and <span class="math inline">\(\vec{W}\)</span> are perpendicular, then cos<span class="math inline">\((\alpha) = 0\)</span> and therefore <span class="math inline">\(\langle \vec{V}, \vec{W} \rangle\)</span> is also zero. If <span class="math inline">\(\vec{V}\)</span> and <span class="math inline">\(\vec{W}\)</span> are unit vectors, then <span class="math inline">\(\langle \vec{V}, \vec{W} \rangle\)</span> is always between <span class="math inline">\(-1.0\)</span> and <span class="math inline">\(1.0\)</span>, with <span class="math inline">\(1.0\)</span> meaning they’re equal and <span class="math inline">\(-1.0\)</span> meaning they’re opposite.</p>
+<p>The second formula also suggests the dot product can be used to calculate the angle between two vectors:</p>
+<p><span class="math display">\[\alpha = cos^{-1} \left( \frac{\langle \vec{V}, \vec{W} \rangle}{|\vec{V}| \cdot |\vec{W}|} \right)\]</span></p>
+<p>Note that the dot product of a vector with itself, <span class="math inline">\(\langle \vec{V}, \vec{V} \rangle\)</span>, reduces to the square of its length:</p>
+<p><span class="math display">\[\langle \vec{V}, \vec{V} \rangle = {V_x}^2 + {V_y}^2 + {V_z}^2 = {|\vec{V}|}^2\]</span></p>
+<p>This suggests another way to compute the length of a vector, as the square root of its dot product with itself:</p>
+<p><span class="math display">\[|\vec{V}| = \sqrt{\langle \vec{V}, \vec{V} \rangle}\]</span></p>
+<h4 id="cross-product"><a href="A0-linear-algebra.html#cross-product">Cross Product</a></h4>
+<p>The cross product between two vectors gives you another vector. It’s expressed using the cross operator, as in <span class="math inline">\(\vec{V} \times \vec{W}\)</span>.</p>
+<p>The cross product of two vectors is a vector perpendicular to both of them. In this book we only use the cross product on 3D vectors, shown in Figure A-7.</p>
+<figure>
+<img alt="Figure A-7: The cross product of two vectors is a vector perpendicular to both of them." id="fig:aa-vector-cross-product" src="images/aa-vector-cross-product.png"/><figcaption aria-hidden="true">Figure A-7: The cross product of two vectors is a vector perpendicular to both of them.</figcaption>
+</figure>
+<p>The computation is a bit more involved than the dot product. If <span class="math inline">\(\vec{R} = \vec{V} \times \vec{W}\)</span>, then</p>
+<p><span class="math display">\[R_x = V_y \cdot W_z - V_z \cdot W_y\]</span> <span class="math display">\[R_y = V_z \cdot W_x - V_x \cdot W_z\]</span> <span class="math display">\[R_z = V_x \cdot W_y - V_y \cdot W_x\]</span></p>
+<p>The cross product is not commutative. Specifically, <span class="math inline">\(\vec{V} \times \vec{W} = -(\vec{W} \times \vec{V})\)</span>.</p>
+<p>We use the cross product to compute the <em>normal vector</em> of a surface—that is, a unit vector perpendicular to the surface. To do this, we take two vectors on the surface, calculate their cross product, and normalize the result.</p>
+<h2 id="matrices"><a href="A0-linear-algebra.html#matrices">Matrices</a></h2>
+<p>A <em>matrix</em> is a rectangular array of numbers. For the purposes of this book, matrices represent <em>transformations</em> that can be applied to points or vectors, and we refer to them with a capital letter, such as <span class="math inline">\(M\)</span>. This is the same way we refer to points, but it will be clear by the context whether we’re talking about a matrix or a point.</p>
+<p>A matrix is characterized by its size in terms of rows and columns. For example, this is a <span class="math inline">\(3 \times 4\)</span> matrix:</p>
+<p><span class="math display">\[\begin{pmatrix}
+1 &amp; 2 &amp; 3 &amp; 4 \\
+-3 &amp; -6 &amp; 9 &amp; 12 \\
+0 &amp; 0 &amp; 1 &amp; 1
+\end{pmatrix}\]</span></p>
+<h2 id="matrix-operations"><a href="A0-linear-algebra.html#matrix-operations">Matrix Operations</a></h2>
+<p>Let’s see what we can do with matrices and vectors.</p>
+<h3 id="adding-matrices"><a href="A0-linear-algebra.html#adding-matrices">Adding Matrices</a></h3>
+<p>You can add two matrices, as long as they have the same size. The addition is done element by element:</p>
+<p><span class="math display">\[\begin{pmatrix}
+a &amp; b &amp; c \\
+d &amp; e &amp; f \\
+g &amp; h &amp; i
+\end{pmatrix}
++
+\begin{pmatrix}
+j &amp; k &amp; l \\
+m &amp; n &amp; o \\
+p &amp; q &amp; r
+\end{pmatrix}
+=
+\begin{pmatrix}
+a+j &amp; b+k &amp; c+l \\
+d+m &amp; e+n &amp; f+o \\
+g+p &amp; h+q &amp; i+r
+\end{pmatrix}\]</span></p>
+<h3 id="multiplying-a-matrix-by-a-number"><a href="A0-linear-algebra.html#multiplying-a-matrix-by-a-number">Multiplying a Matrix by a Number</a></h3>
+<p>You can multiply a matrix by a number. You just multiply every element of the matrix by the number:</p>
+<p><span class="math display">\[n \cdot
+\begin{pmatrix}
+a &amp; b &amp; c \\
+d &amp; e &amp; f \\
+g &amp; h &amp; i
+\end{pmatrix}
+=
+\begin{pmatrix}
+n \cdot a &amp; n \cdot b &amp; n \cdot c \\
+n \cdot d &amp; n \cdot e &amp; n \cdot f \\
+n \cdot g &amp; n \cdot h &amp; n \cdot i
+\end{pmatrix}\]</span></p>
+<h3 id="multiplying-matrices"><a href="A0-linear-algebra.html#multiplying-matrices">Multiplying Matrices</a></h3>
+<p>You can multiply two matrices together, as long as their sizes are compatible: the number of columns in the first matrix must be the same as the number of rows in the second matrix. For example, you can multiply a <span class="math inline">\(2 \times 3\)</span> matrix by a <span class="math inline">\(3 \times 4\)</span> matrix, but not the other way around! Unlike numbers, the order of the multiplication matters, even if you’re multiplying together two square matrices that could be multiplied in either order.</p>
+<p>The result of multiplying two matrices together is another matrix, with the same number of rows as the left-hand side matrix, and the same number of columns as the right-hand side matrix. Continuing with our example above, the result of multiplying a <span class="math inline">\(2 \times 3\)</span> matrix by a <span class="math inline">\(3 \times 4\)</span> matrix is a <span class="math inline">\(2 \times 4\)</span> matrix.</p>
+<p>Let’s see how to multiply two matrices, A and B:</p>
+<p><span class="math display">\[A =
+\begin{pmatrix}
+a &amp; b &amp; c \\
+d &amp; e &amp; f
+\end{pmatrix}\]</span> <span class="math display">\[B =
+\begin{pmatrix}
+g &amp; h &amp; i &amp; j \\
+k &amp; l &amp; m &amp; n \\
+o &amp; p &amp; q &amp; r
+\end{pmatrix}\]</span></p>
+<p>To make things more clear, let’s group the values in A and B into vectors: let’s write A as a column of row (horizontal) vectors and B as a row of column (vertical) vectors. For example, the first row of A is the vector <span class="math inline">\((a, b, c)\)</span> and the second column of B is the vector <span class="math inline">\((h, l, p)\)</span>:</p>
+<p><span class="math display">\[A =
+\begin{pmatrix}
+    (a, b, c) \\
+    (d, e, f)
+\end{pmatrix}\]</span> <span class="math display">\[B =
+\begin{pmatrix}
+    \begin{pmatrix} g \\ k \\ o \end{pmatrix} &amp;
+    \begin{pmatrix} h \\ l \\ p \end{pmatrix} &amp;
+    \begin{pmatrix} i \\ m \\ q \end{pmatrix} &amp;
+    \begin{pmatrix} j \\ n \\ r \end{pmatrix}
+\end{pmatrix}\]</span></p>
+<p>Let’s give names to these vectors:</p>
+<p><span class="math display">\[A = \begin{pmatrix}
+- \vec{A_0} - \\
+- \vec{A_1} -
+\end{pmatrix}\]</span> <span class="math display">\[B = \begin{pmatrix}
+| &amp; | &amp; | &amp; | \\
+\vec{B_0} &amp; \vec{B_1} &amp; \vec{B_2} &amp; \vec{B_3} \\
+| &amp; | &amp; | &amp; |
+\end{pmatrix}\]</span></p>
+<p>We know that A is <span class="math inline">\(2 \times 3\)</span>, and B is <span class="math inline">\(3 \times 4\)</span>, so we know the result will be a <span class="math inline">\(2 \times 4\)</span> matrix:</p>
+<p><span class="math display">\[\begin{pmatrix}
+- \vec{A_0} - \\
+- \vec{A_1} -
+\end{pmatrix}
+\cdot
+\begin{pmatrix}
+| &amp; | &amp; | &amp; | \\
+\vec{B_0} &amp; \vec{B_1} &amp; \vec{B_2} &amp; \vec{B_3} \\
+| &amp; | &amp; | &amp; |
+\end{pmatrix}
+=
+\begin{pmatrix}
+c_{00} &amp; c_{01} &amp; c_{02} &amp; c_{03} \\
+c_{10} &amp; c_{11} &amp; c_{12} &amp; c_{13}
+\end{pmatrix}\]</span></p>
+<p>Now we can use a simple formulation for the elements of the resulting matrix: the value of the element in row <span class="math inline">\(r\)</span> and column <span class="math inline">\(c\)</span> of the result—that is, <span class="math inline">\(c_{rc}\)</span>—is the dot product of the corresponding row vector in <span class="math inline">\(\textbf{A}\)</span> and column vector in <span class="math inline">\(\textbf{B}\)</span>, that is, <span class="math inline">\(\vec{A_r}\)</span> and <span class="math inline">\(\vec{B_c}\)</span>:</p>
+<p><span class="math display">\[\begin{pmatrix}
+- \vec{A_0} - \\
+- \vec{A_1} -
+\end{pmatrix}
+\cdot
+\begin{pmatrix}
+| &amp; | &amp; | &amp; | \\
+\vec{B_0} &amp; \vec{B_1} &amp; \vec{B_2} &amp; \vec{B_3} \\
+| &amp; | &amp; | &amp; |
+\end{pmatrix}
+=
+\begin{pmatrix}
+\langle \vec{A_0}, \vec{B_0} \rangle &amp; \langle \vec{A_0}, \vec{B_1} \rangle &amp; \langle \vec{A_0}, \vec{B_2} \rangle &amp; \langle \vec{A_0}, \vec{B_3} \rangle \\
+\langle \vec{A_1}, \vec{B_0} \rangle &amp; \langle \vec{A_1}, \vec{B_1} \rangle &amp; \langle \vec{A_1}, \vec{B_2} \rangle &amp; \langle \vec{A_1}, \vec{B_3} \rangle \\
+\end{pmatrix}\]</span></p>
+<p>For example <span class="math inline">\(c_{01} = \langle \vec{A_0}, \vec{B_1} \rangle\)</span>, which expands to <span class="math inline">\(a \cdot h + b \cdot l + c \cdot p\)</span>.</p>
+<h3 id="multiplying-a-matrix-and-a-vector"><a href="A0-linear-algebra.html#multiplying-a-matrix-and-a-vector">Multiplying a Matrix and a Vector</a></h3>
+<p>You can think of an <em>n</em>-dimensional vector as either an <span class="math inline">\(n \times 1\)</span> vertical matrix or as a <span class="math inline">\(1 \times n\)</span> horizontal matrix, and multiply the same way you would multiply any two compatible matrices. For example, here’s how to multiply a <span class="math inline">\(2 \times 3\)</span> matrix and a 3D vector:</p>
+<p><span class="math display">\[\begin{pmatrix}
+a &amp; b &amp; c \\
+d &amp; e &amp; f \\
+\end{pmatrix}
+\cdot
+\begin{pmatrix} x \\ y \\ z \end{pmatrix}
+=
+\begin{pmatrix}
+a \cdot x + b \cdot y + c \cdot z \\
+d \cdot x + e \cdot y + f \cdot z
+\end{pmatrix}\]</span></p>
+<p>Since the result of multiplying a matrix and a vector (or a vector and a matrix) is also a vector and, in our case, matrices represent transformations, we can say that the matrix <em>transforms</em> the vector.</p>
+<div class="cgfs-buy">
+Found this interesting? <br/> <b>Buy the book from <a href="https://nostarch.com/computer-graphics-scratch">No Starch Press</a> or <a href="https://www.amazon.com/Computer-Graphics-Scratch-Gabriel-Gambetta/dp/1718500769">Amazon</a>. </b>
+</div>
+<div class="centered">
+<b><a href="15-extending-the-rasterizer.html">&lt;&lt; Extending the Rasterizer</a> | <a href="afterword.html">Afterword &gt;&gt;</a></b>
+</div>
+<div class="cgfs_navbar">
+<b>Computer Graphics From Scratch</b> · <a href="dedication.html">Dedication</a> | <a href="acknowledgements.html">Acknowledgements</a> | <a href="index.html">Table of Contents</a> | <a href="00-introduction.html">Introduction</a> | <a href="01-common-concepts.html">Introductory Concepts</a><br/><b>Part I: Raytracing</b> · <a href="02-basic-raytracing.html">Basic Raytracing</a> | <a href="03-light.html">Light</a> | <a href="04-shadows-and-reflections.html">Shadows and Reflections</a> | <a href="05-extending-the-raytracer.html">Extending the Raytracer</a><br/><b>Part II: Rasterization</b> · <a href="06-lines.html">Lines</a> | <a href="07-filled-triangles.html">Filled Triangles</a> | <a href="08-shaded-triangles.html">Shaded Triangles</a> | <a href="09-perspective-projection.html">Perspective Projection</a> | <a href="10-describing-and-rendering-a-scene.html">Describing and Rendering a Scene</a> | <a href="11-clipping.html">Clipping</a> | <a href="12-hidden-surface-removal.html">Hidden Surface Removal</a> | <a href="13-shading.html">Shading</a> | <a href="14-textures.html">Textures</a> | <a href="15-extending-the-rasterizer.html">Extending the Rasterizer</a><br/><b>Appendixes</b> · Linear Algebra | <a href="afterword.html">Afterword</a>
+</div>
+<div class="signup" id="signup">
+</div>
+<script>$("#signup").load("/signup.php?m=cgfs&r=A0-linear-algebra");</script>
+</div>
+<div class="copyright">© Gabriel Gambetta 2026</div>
+</body>
+</html>

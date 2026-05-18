@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html class="cgfs" lang="en" xml:lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0, user-scalable=yes" name="viewport"/>
+<title>Filled Triangles - Computer Graphics from Scratch - Gabriel Gambetta</title>
+<style>
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    span.underline{text-decoration: underline;}
+    div.column{display: inline-block; vertical-align: top; width: 50%;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    ul.task-list{list-style: none;}
+</style>
+<link href="../css/style.css" rel="stylesheet"/>
+<!--[if lt IE 9]>
+<script src="//cdnjs.cloudflare.com/ajax/libs/html5shiv/3.7.3/html5shiv-printshiv.min.js"></script>
+<![endif]-->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.2/MathJax.js?config=TeX-AMS-MML_HTMLorMML" type="text/javascript"></script>
+<script src="../js/jquery-3.2.1.min.js"></script>
+<!-- Google tag (gtag.js) -->
+<script async="" src="https://www.googletagmanager.com/gtag/js?id=G-M38VSQ9GME"></script>
+<script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-M38VSQ9GME');
+</script>
+</head>
+<body>
+<div class="main">
+<div class="nav">
+<a href="index.html">&lt;&lt; Computer Graphics from Scratch</a> <a class="homelink" href="https://gabrielgambetta.com/index.html">Gabriel Gambetta</a>
+</div>
+<div style="clear:both;"></div>
+<h1 id="ch:filled_triangles">Filled Triangles</h1>
+<p>In the previous chapter, we took our first steps toward drawing simple shapes—namely, straight line segments—using only <code>PutPixel</code> and an algorithm based on simple math. In this chapter, we’ll reuse some of the math to draw something more interesting: a filled triangle.</p>
+<h2 id="drawing-wireframe-triangles"><a href="07-filled-triangles.html#drawing-wireframe-triangles">Drawing Wireframe Triangles</a></h2>
+<p>We can use the <code>DrawLine</code> method to draw the outline of a triangle:</p>
+<pre>DrawWireframeTriangle (P0, P1, P2, color) {
+    DrawLine(P0, P1, color);
+    DrawLine(P1, P2, color);
+    DrawLine(P2, P0, color);
+}</pre>
+<p>This kind of outline is called a <em>wireframe</em>, because it looks like a triangle made of wires, as you can see in Figure 7-1.</p>
+<figure>
+<img alt="Figure 7-1: A wireframe triangle with vertices (–200,–250), (200,50), and (20,250)" id="fig:triangle_wireframe" src="images/raster-03.png"/><figcaption aria-hidden="true">Figure 7-1: A wireframe triangle with vertices (–200,–250), (200,50), and (20,250)</figcaption>
+</figure>
+<p>This is a promising start! Next we’ll explore how to fill that triangle with a color.</p>
+<h2 id="drawing-filled-triangles"><a href="07-filled-triangles.html#drawing-filled-triangles">Drawing Filled Triangles</a></h2>
+<p>We want to draw a triangle filled with a color of our choice. As is often the case in computer graphics, there’s more than one way to approach this problem. We’ll draw filled triangles by thinking of them as a collection of horizontal line segments that look like a triangle when drawn together. Figure 7-2 shows what one such triangle would look like if we could see the individual segments.</p>
+<figure>
+<img alt="Figure 7-2: Drawing a filled triangle using horizontal segments" id="fig:filled_triangle_segments" src="images/triangle-horizontal-segments.png"/><figcaption aria-hidden="true">Figure 7-2: Drawing a filled triangle using horizontal segments</figcaption>
+</figure>
+<p>The following is a very rough first approximation of what we want to do:</p>
+<pre>for each horizontal line y between the triangle's top and bottom
+    compute x_left and x_right for this y
+    DrawLine(x_left, y, x_right, y)</pre>
+<p>Let’s start with “between the triangle’s top and bottom.” A triangle is defined by its three vertices <span class="math inline">\(P_0\)</span>, <span class="math inline">\(P_1\)</span>, and <span class="math inline">\(P_2\)</span>. If we sort these points by increasing value of <span class="math inline">\(y\)</span>, such that <span class="math inline">\(y_0 \le y_1 \le y_2\)</span>, then the range of values of <span class="math inline">\(y\)</span> occupied by the triangle is <span class="math inline">\([y_0, y_2]\)</span>:</p>
+<pre>if y1 &lt; y0 { swap(P1, P0) }
+if y2 &lt; y0 { swap(P2, P0) }
+if y2 &lt; y1 { swap(P2, P1) }</pre>
+<p>Sorting the vertices this way makes things easier: after doing this, we can always assume <span class="math inline">\(P_0\)</span> is the lowest point of the triangle and <span class="math inline">\(P_2\)</span> is the highest, so we won’t have to deal with every possible ordering.</p>
+<p>Next we have to compute the <code>x_left</code> and <code>x_right</code> arrays. This is slightly tricky, because the triangle has three sides, not two. However, considering only the values of <span class="math inline">\(y\)</span>, we always have a “tall” side from <span class="math inline">\(P_0\)</span> to <span class="math inline">\(P_2\)</span>, and two “short” sides from <span class="math inline">\(P_0\)</span> to <span class="math inline">\(P_1\)</span> and <span class="math inline">\(P_1\)</span> to <span class="math inline">\(P_2\)</span>.</p>
+<p>There’s a special case when <span class="math inline">\(y_0 = y_1\)</span> or <span class="math inline">\(y_1 = y_2\)</span>—that is, when one of the sides of the triangle is horizontal. When this happens, the two other sides have the same height, so either could be considered the “tall” side. Should we choose the right side or the left side? Fortunately, it doesn’t matter; the algorithm will support both left-to-right and right-to-left horizontal lines, so we can stick to our definition that the “tall” side is the one from <span class="math inline">\(P_0\)</span> to <span class="math inline">\(P_2\)</span>.</p>
+<p>The values for <code>x_right</code> will come either from the tall side or from joining the short sides; the values for <code>x_left</code> will come from the other set. We’ll start by computing the values of <span class="math inline">\(x\)</span> for the three sides. Since we’ll be drawing horizontal segments, we want exactly one value of <span class="math inline">\(x\)</span> for each value of <span class="math inline">\(y\)</span>; this means we can compute these values by using <code>Interpolate</code>, with <span class="math inline">\(y\)</span> as the independent variable and <span class="math inline">\(x\)</span> as the dependent variable:</p>
+<pre>x01 = Interpolate(y0, x0, y1, x1)
+x12 = Interpolate(y1, x1, y2, x2)
+x02 = Interpolate(y0, x0, y2, x2)</pre>
+<p>The <span class="math inline">\(x\)</span> values for one of the sides are in <code>x02</code>; the values for the other side come from the concatenation of <code>x01</code> and <code>x12</code>. Note that there’s a repeated value in <code>x01</code> and <code>x12</code>: the <span class="math inline">\(x\)</span> value for <span class="math inline">\(y_1\)</span> is both the last value of <code>x01</code> and the</p>
+<p>first value of <code>x12</code>. We just need to get rid of one of them (we arbitrarily choose the last value of <code>x01</code>), and then concatenate the arrays:</p>
+<pre>remove_last(x01)
+x012 = x01 + x12</pre>
+<p>We finally have <code>x02</code> and <code>x012</code>, and we need to determine which is <code>x_left</code> and which is <code>x_right</code>. To do this, we can choose any horizontal line (for example, the middle one) and compare its <span class="math inline">\(x\)</span> values in <code>x02</code> and <code>x012</code>: if the <span class="math inline">\(x\)</span> value in <code>x02</code> is smaller than the one in <code>x012</code>, then we know <code>x02</code> must be <code>x_left</code>; otherwise, it must be <code>x_right</code>.</p>
+<pre>m = floor(x02.length / 2)
+if x02[m] &lt; x012[m] {
+    x_left = x02
+    x_right = x012
+} else {
+    x_left = x012
+    x_right = x02
+}</pre>
+<p>Now we have all the data we need to draw the horizontal segments. We could use <code>DrawLine</code> for this. However, <code>DrawLine</code> is a very generic function, and in this case we’re always drawing horizontal, left-to-right lines, so it’s more efficient to use a simple <code>for</code> loop. This also gives us more “control” over every pixel we draw, which will be especially useful in the following chapters.</p>
+<p>Listing 7-1 has the completed <code>DrawFilledTriangle</code>.</p>
+<pre data-caption="Listing 7-1: A function to draw filled triangles" data-label="lst:draw_filled_triangle">DrawFilledTriangle (P0, P1, P2, color) {
+   ❶// Sort the points so that y0 &lt;= y1 &lt;= y2
+    if y1 &lt; y0 { swap(P1, P0) }
+    if y2 &lt; y0 { swap(P2, P0) }
+    if y2 &lt; y1 { swap(P2, P1) }
+
+   ❷// Compute the x coordinates of the triangle edges
+    x01 = Interpolate(y0, x0, y1, x1)
+    x12 = Interpolate(y1, x1, y2, x2)
+    x02 = Interpolate(y0, x0, y2, x2)
+
+   ❸// Concatenate the short sides
+    remove_last(x01)
+    x012 = x01 + x12
+
+   ❹// Determine which is left and which is right
+    m = floor(x012.length / 2)
+    if x02[m] &lt; x012[m] {
+        x_left = x02
+        x_right = x012
+    } else {
+        x_left = x012
+        x_right = x02
+    }
+
+   ❺// Draw the horizontal segments
+    for y = y0 to y2 {
+        for x = x_left[y - y0] to x_right[y - y0] {
+            canvas.PutPixel(x, y, color)
+        }
+    }
+}</pre><figcaption class="code_caption">Listing 7-1: A function to draw filled triangles</figcaption>
+<p>Let’s see what’s going on here. The function receives the three vertices of the triangle as arguments, in any order. Our algorithm needs them to be in bottom-to-top order, so we sort them that way ❶. Next, we compute the <code>x</code> values for each <code>y</code> value of the three sides ❷, and concatenate the arrays from the two “short” sides ❸. Then we figure out which is <code>x_left</code> and which is <code>x_right</code> ❹. Finally, for each horizontal segment between the top and the bottom of the triangle, we get its left and right <code>x</code> coordinates, and draw the segment pixel by pixel ❺.</p>
+<p>Figure 7-3 shows the results; for verification purposes, we call <code>DrawFilledTriangle</code> and then <code>DrawWireframeTriangle</code> with the same coordinates but different colors. Verify your results whenever you can—this is a very effective way to find bugs in the code!</p>
+<figure>
+<img alt="Figure 7-3: A filled triangle, with wireframe edges for verification" id="fig:filled_triangle_with_edges" src="images/raster-03b.png"/><figcaption aria-hidden="true">Figure 7-3: A filled triangle, with wireframe edges for verification</figcaption>
+</figure>
+<p><a class="cgfs_demo" href="https://gabrielgambetta.com/cgfs/triangle-demo">Source code and live demo &gt;&gt;</a></p>
+<p>You may notice the black outline of the triangle doesn’t <em>exactly</em> match the green interior region; this is especially visible in the lower-right edge of the triangle. This is because <code>DrawLine</code> is computing <span class="math inline">\(y = f(x)\)</span> for that edge but <code>DrawTriangle</code> is computing <span class="math inline">\(x = f(y)\)</span>, and this can produce slightly different results due to rounding. This is the kind of approximation error we’re willing to accept in order to make our rendering algorithms fast.</p>
+<h2 id="summary"><a href="07-filled-triangles.html#summary">Summary</a></h2>
+<p>In this chapter, we’ve developed an algorithm to draw a filled triangle on the canvas. This is a step up from drawing line segments. We’ve also learned to think of triangles as a set of horizontal segments that we can work with individually.</p>
+<p>In the next chapter, we’ll extend the math and the algorithm to draw a triangle filled with a color gradient; the math and the reasoning behind the algorithm will be key to the rest of the features developed in this book.</p>
+<div class="cgfs-buy">
+Found this interesting? <br/> <b>Buy the book from <a href="https://nostarch.com/computer-graphics-scratch">No Starch Press</a> or <a href="https://www.amazon.com/Computer-Graphics-Scratch-Gabriel-Gambetta/dp/1718500769">Amazon</a>. </b>
+</div>
+<div class="centered">
+<b><a href="06-lines.html">&lt;&lt; Lines</a> | <a href="08-shaded-triangles.html">Shaded Triangles &gt;&gt;</a></b>
+</div>
+<div class="cgfs_navbar">
+<b>Computer Graphics From Scratch</b> · <a href="dedication.html">Dedication</a> | <a href="acknowledgements.html">Acknowledgements</a> | <a href="index.html">Table of Contents</a> | <a href="00-introduction.html">Introduction</a> | <a href="01-common-concepts.html">Introductory Concepts</a><br/><b>Part I: Raytracing</b> · <a href="02-basic-raytracing.html">Basic Raytracing</a> | <a href="03-light.html">Light</a> | <a href="04-shadows-and-reflections.html">Shadows and Reflections</a> | <a href="05-extending-the-raytracer.html">Extending the Raytracer</a><br/><b>Part II: Rasterization</b> · <a href="06-lines.html">Lines</a> | Filled Triangles | <a href="08-shaded-triangles.html">Shaded Triangles</a> | <a href="09-perspective-projection.html">Perspective Projection</a> | <a href="10-describing-and-rendering-a-scene.html">Describing and Rendering a Scene</a> | <a href="11-clipping.html">Clipping</a> | <a href="12-hidden-surface-removal.html">Hidden Surface Removal</a> | <a href="13-shading.html">Shading</a> | <a href="14-textures.html">Textures</a> | <a href="15-extending-the-rasterizer.html">Extending the Rasterizer</a><br/><b>Appendixes</b> · <a href="A0-linear-algebra.html">Linear Algebra</a> | <a href="afterword.html">Afterword</a>
+</div>
+<div class="signup" id="signup">
+</div>
+<script>$("#signup").load("/signup.php?m=cgfs&r=07-filled-triangles");</script>
+</div>
+<div class="copyright">© Gabriel Gambetta 2026</div>
+</body>
+</html>
