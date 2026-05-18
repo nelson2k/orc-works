@@ -194,11 +194,13 @@ func main() {
 		}
 	})
 	ocrBtn := widget.NewButton("OCR Page", nil)
+	ocrPDFBtn := widget.NewButton("OCR PDF", nil)
 	openBtn := widget.NewButton("Open PDF", nil)
 
 	prevBtn.Disable()
 	nextBtn.Disable()
 	ocrBtn.Disable()
+	ocrPDFBtn.Disable()
 
 	setBusy := func(busy bool) {
 		if busy {
@@ -206,6 +208,7 @@ func main() {
 			prevBtn.Disable()
 			nextBtn.Disable()
 			ocrBtn.Disable()
+			ocrPDFBtn.Disable()
 			return
 		}
 		openBtn.Enable()
@@ -213,9 +216,11 @@ func main() {
 			prevBtn.Disable()
 			nextBtn.Disable()
 			ocrBtn.Disable()
+			ocrPDFBtn.Disable()
 			return
 		}
 		ocrBtn.Enable()
+		ocrPDFBtn.Enable()
 		if curPage <= 0 {
 			prevBtn.Disable()
 		} else {
@@ -299,18 +304,9 @@ func main() {
 		}()
 	}
 
-	ocrBtn.OnTapped = func() {
-		path := curPath
-		page := curPage
-		if path == "" {
-			return
-		}
-		setBusy(true)
-		textArea.SetText("")
-		statusLabel.SetText("starting...")
-
+	makeOCRProgress := func(page int) func(map[string]any) {
 		var lastStage string
-		onProgress := func(ev map[string]any) {
+		return func(ev map[string]any) {
 			kind, _ := ev["kind"].(string)
 			if kind == "image" {
 				pngB64, _ := ev["png_base64"].(string)
@@ -329,11 +325,12 @@ func main() {
 				return
 			}
 			var text string
+			pagePrefix := fmt.Sprintf("page %d", page+1)
 			switch kind {
 			case "stage":
 				if name, ok := ev["name"].(string); ok {
 					lastStage = name
-					text = "● " + name
+					text = fmt.Sprintf("● %s — %s", pagePrefix, name)
 				}
 			case "tqdm":
 				desc, _ := ev["desc"].(string)
@@ -344,24 +341,35 @@ func main() {
 					prefix = "..."
 				}
 				if total > 0 {
-					text = fmt.Sprintf("● %s — %s %d/%d", prefix, desc, int(n), int(total))
+					text = fmt.Sprintf("● %s — %s — %s %d/%d", pagePrefix, prefix, desc, int(n), int(total))
 				} else if desc != "" {
-					text = fmt.Sprintf("● %s — %s", prefix, desc)
+					text = fmt.Sprintf("● %s — %s — %s", pagePrefix, prefix, desc)
 				} else {
-					text = "● " + prefix
+					text = fmt.Sprintf("● %s — %s", pagePrefix, prefix)
 				}
 			default:
 				return
 			}
 			fyne.Do(func() { statusLabel.SetText(text) })
 		}
+	}
+
+	ocrBtn.OnTapped = func() {
+		path := curPath
+		page := curPage
+		if path == "" {
+			return
+		}
+		setBusy(true)
+		textArea.SetText("")
+		statusLabel.SetText("starting...")
 
 		go func() {
 			resp, err := worker.request(map[string]any{
 				"cmd":  "ocr",
 				"path": path,
 				"page": page,
-			}, onProgress)
+			}, makeOCRProgress(page))
 			if err != nil {
 				fyne.Do(func() {
 					dialog.ShowError(err, win)
@@ -394,6 +402,78 @@ func main() {
 		}()
 	}
 
+	ocrPDFBtn.OnTapped = func() {
+		path := curPath
+		total := curTotal
+		if path == "" || total == 0 {
+			return
+		}
+		setBusy(true)
+		textArea.SetText("")
+		statusLabel.SetText(fmt.Sprintf("starting PDF OCR: %d pages", total))
+
+		go func() {
+			var allText bytes.Buffer
+			var lastSavedTo string
+
+			for page := 0; page < total; page++ {
+				page := page
+				fyne.Do(func() {
+					curPage = page
+					updateLabel()
+					statusLabel.SetText(fmt.Sprintf("OCR PDF: page %d of %d", page+1, total))
+				})
+
+				resp, err := worker.request(map[string]any{
+					"cmd":  "ocr",
+					"path": path,
+					"page": page,
+				}, makeOCRProgress(page))
+				if err != nil {
+					fyne.Do(func() {
+						dialog.ShowError(err, win)
+						statusLabel.SetText("")
+						setBusy(false)
+					})
+					return
+				}
+				if t, _ := resp["type"].(string); t == "error" {
+					fyne.Do(func() {
+						dialog.ShowError(fmt.Errorf("%v", resp["message"]), win)
+						statusLabel.SetText("")
+						setBusy(false)
+					})
+					return
+				}
+
+				text, _ := resp["text"].(string)
+				savedTo, _ := resp["saved_to"].(string)
+				if savedTo != "" {
+					lastSavedTo = savedTo
+				}
+				if allText.Len() > 0 {
+					allText.WriteString("\n\n")
+				}
+				allText.WriteString(fmt.Sprintf("# Page %d\n\n%s", page+1, text))
+
+				currentText := allText.String()
+				fyne.Do(func() {
+					textArea.SetText(currentText)
+					statusLabel.SetText(fmt.Sprintf("OCR PDF: completed page %d of %d", page+1, total))
+				})
+			}
+
+			fyne.Do(func() {
+				if lastSavedTo != "" {
+					statusLabel.SetText("saved → " + lastSavedTo)
+				} else {
+					statusLabel.SetText("done")
+				}
+				setBusy(false)
+			})
+		}()
+	}
+
 	openBtn.OnTapped = func() {
 		path, err := nfd.File().Title("Open PDF").Filter("PDF files (*.pdf)", "pdf").Load()
 		if err == nfd.ErrCancelled {
@@ -410,7 +490,7 @@ func main() {
 		render(0)
 	}
 
-	leftBox := container.NewHBox(openBtn, ocrBtn)
+	leftBox := container.NewHBox(openBtn, ocrBtn, ocrPDFBtn)
 	navBox := container.NewHBox(prevBtn, pageLabel, nextBtn)
 	topBar := container.NewBorder(nil, nil, leftBox, navBox, nil)
 
