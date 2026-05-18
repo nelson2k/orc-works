@@ -31,6 +31,28 @@ def render(path, page, dpi):
         doc.close()
 
 
+def ocr(path, page, lang, dpi, tessdata):
+    doc = pymupdf.open(path)
+    try:
+        pages = len(doc)
+        if page < 0 or page >= pages:
+            return {
+                "type": "error",
+                "message": f"page {page} out of range (doc has {pages} pages)",
+            }
+        p = doc[page]
+        tp = p.get_textpage_ocr(language=lang, dpi=dpi, full=True, tessdata=tessdata)
+        text = p.get_text("text", textpage=tp)
+        return {
+            "type": "text",
+            "page": page,
+            "pages": pages,
+            "text": text,
+        }
+    finally:
+        doc.close()
+
+
 def main():
     for line in sys.stdin:
         line = line.strip()
@@ -51,6 +73,14 @@ def main():
                     cmd["path"],
                     int(cmd.get("page", 0)),
                     int(cmd.get("dpi", 120)),
+                ))
+            elif c == "ocr":
+                send(ocr(
+                    cmd["path"],
+                    int(cmd.get("page", 0)),
+                    cmd.get("lang", "eng"),
+                    int(cmd.get("dpi", 300)),
+                    cmd.get("tessdata"),
                 ))
             else:
                 send({"type": "error", "message": f"unknown command: {c}"})

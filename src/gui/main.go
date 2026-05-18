@@ -99,10 +99,15 @@ func main() {
 	worker := &Worker{}
 	defer worker.shutdown()
 
+	tessdataDir, _ := filepath.Abs(filepath.Join("..", "tessdata"))
+
 	imgCanvas := canvas.NewImageFromImage(nil)
 	imgCanvas.FillMode = canvas.ImageFillContain
-	imgCanvas.SetMinSize(fyne.NewSize(600, 800))
+	imgCanvas.SetMinSize(fyne.NewSize(500, 700))
 	scrollable := container.NewScroll(imgCanvas)
+
+	textArea := widget.NewMultiLineEntry()
+	textArea.Wrapping = fyne.TextWrapWord
 
 	pageLabel := widget.NewLabel("")
 
@@ -124,17 +129,29 @@ func main() {
 			render(curPage + 1)
 		}
 	})
+	ocrBtn := widget.NewButton("OCR Page", nil)
+	openBtn := widget.NewButton("Open PDF", nil)
+
 	prevBtn.Disable()
 	nextBtn.Disable()
+	ocrBtn.Disable()
 
-	updateNav := func() {
-		if curTotal == 0 {
-			pageLabel.SetText("")
+	setBusy := func(busy bool) {
+		if busy {
+			openBtn.Disable()
 			prevBtn.Disable()
 			nextBtn.Disable()
+			ocrBtn.Disable()
 			return
 		}
-		pageLabel.SetText(fmt.Sprintf("Page %d of %d", curPage+1, curTotal))
+		openBtn.Enable()
+		if curTotal == 0 {
+			prevBtn.Disable()
+			nextBtn.Disable()
+			ocrBtn.Disable()
+			return
+		}
+		ocrBtn.Enable()
 		if curPage <= 0 {
 			prevBtn.Disable()
 		} else {
@@ -147,13 +164,20 @@ func main() {
 		}
 	}
 
+	updateLabel := func() {
+		if curTotal == 0 {
+			pageLabel.SetText("")
+			return
+		}
+		pageLabel.SetText(fmt.Sprintf("Page %d of %d", curPage+1, curTotal))
+	}
+
 	render = func(page int) {
 		path := curPath
 		if path == "" {
 			return
 		}
-		prevBtn.Disable()
-		nextBtn.Disable()
+		setBusy(true)
 
 		go func() {
 			resp, err := worker.request(map[string]any{
@@ -165,14 +189,14 @@ func main() {
 			if err != nil {
 				fyne.Do(func() {
 					dialog.ShowError(err, win)
-					updateNav()
+					setBusy(false)
 				})
 				return
 			}
 			if t, _ := resp["type"].(string); t == "error" {
 				fyne.Do(func() {
 					dialog.ShowError(fmt.Errorf("%v", resp["message"]), win)
-					updateNav()
+					setBusy(false)
 				})
 				return
 			}
@@ -181,7 +205,7 @@ func main() {
 			if err != nil {
 				fyne.Do(func() {
 					dialog.ShowError(err, win)
-					updateNav()
+					setBusy(false)
 				})
 				return
 			}
@@ -189,7 +213,7 @@ func main() {
 			if err != nil {
 				fyne.Do(func() {
 					dialog.ShowError(err, win)
-					updateNav()
+					setBusy(false)
 				})
 				return
 			}
@@ -204,12 +228,56 @@ func main() {
 				if pages > 0 {
 					curTotal = pages
 				}
-				updateNav()
+				updateLabel()
+				textArea.SetText("")
+				setBusy(false)
 			})
 		}()
 	}
 
-	openBtn := widget.NewButton("Open PDF", func() {
+	ocrBtn.OnTapped = func() {
+		path := curPath
+		page := curPage
+		if path == "" {
+			return
+		}
+		setBusy(true)
+		textArea.SetText("Running OCR...")
+
+		go func() {
+			resp, err := worker.request(map[string]any{
+				"cmd":      "ocr",
+				"path":     path,
+				"page":     page,
+				"lang":     "eng",
+				"dpi":      300,
+				"tessdata": tessdataDir,
+			})
+			if err != nil {
+				fyne.Do(func() {
+					dialog.ShowError(err, win)
+					textArea.SetText("")
+					setBusy(false)
+				})
+				return
+			}
+			if t, _ := resp["type"].(string); t == "error" {
+				fyne.Do(func() {
+					dialog.ShowError(fmt.Errorf("%v", resp["message"]), win)
+					textArea.SetText("")
+					setBusy(false)
+				})
+				return
+			}
+			text, _ := resp["text"].(string)
+			fyne.Do(func() {
+				textArea.SetText(text)
+				setBusy(false)
+			})
+		}()
+	}
+
+	openBtn.OnTapped = func() {
 		path, err := nfd.File().Title("Open PDF").Filter("PDF files (*.pdf)", "pdf").Load()
 		if err == nfd.ErrCancelled {
 			return
@@ -221,13 +289,19 @@ func main() {
 		curPath = path
 		curPage = 0
 		curTotal = 0
+		textArea.SetText("")
 		render(0)
-	})
+	}
 
+	leftBox := container.NewHBox(openBtn, ocrBtn)
 	navBox := container.NewHBox(prevBtn, pageLabel, nextBtn)
-	topBar := container.NewBorder(nil, nil, openBtn, navBox, nil)
-	win.SetContent(container.NewBorder(topBar, nil, nil, nil, scrollable))
-	win.Resize(fyne.NewSize(900, 800))
+	topBar := container.NewBorder(nil, nil, leftBox, navBox, nil)
+
+	split := container.NewHSplit(scrollable, textArea)
+	split.Offset = 0.6
+
+	win.SetContent(container.NewBorder(topBar, nil, nil, nil, split))
+	win.Resize(fyne.NewSize(1200, 800))
 	win.CenterOnScreen()
 	win.ShowAndRun()
 }
