@@ -6,3 +6,4 @@ _docs/key.txt
 __pycache__/
 *.pyc
 node_modules/
+src/venv/
