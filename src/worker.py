@@ -6,6 +6,9 @@ import traceback
 import pymupdf
 
 
+_marker_models = None
+
+
 def send(msg):
     print(json.dumps(msg), flush=True)
 
@@ -31,26 +34,30 @@ def render(path, page, dpi):
         doc.close()
 
 
-def ocr(path, page, lang, dpi, tessdata):
-    doc = pymupdf.open(path)
-    try:
-        pages = len(doc)
-        if page < 0 or page >= pages:
-            return {
-                "type": "error",
-                "message": f"page {page} out of range (doc has {pages} pages)",
-            }
-        p = doc[page]
-        tp = p.get_textpage_ocr(language=lang, dpi=dpi, full=True, tessdata=tessdata)
-        text = p.get_text("text", textpage=tp)
-        return {
-            "type": "text",
-            "page": page,
-            "pages": pages,
-            "text": text,
-        }
-    finally:
-        doc.close()
+def _ensure_marker():
+    global _marker_models
+    if _marker_models is None:
+        from marker.models import create_model_dict
+        _marker_models = create_model_dict()
+    return _marker_models
+
+
+def ocr(path, page):
+    from marker.converters.pdf import PdfConverter
+    from marker.output import text_from_rendered
+
+    models = _ensure_marker()
+    converter = PdfConverter(
+        artifact_dict=models,
+        config={"page_range": [page]},
+    )
+    rendered = converter(path)
+    text, _, _ = text_from_rendered(rendered)
+    return {
+        "type": "text",
+        "page": page,
+        "text": text,
+    }
 
 
 def main():
@@ -78,9 +85,6 @@ def main():
                 send(ocr(
                     cmd["path"],
                     int(cmd.get("page", 0)),
-                    cmd.get("lang", "eng"),
-                    int(cmd.get("dpi", 300)),
-                    cmd.get("tessdata"),
                 ))
             else:
                 send({"type": "error", "message": f"unknown command: {c}"})

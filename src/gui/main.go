@@ -7,11 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"image"
+	"image/color"
 	_ "image/png"
 	"io"
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"fyne.io/fyne/v2"
 	"fyne.io/fyne/v2/app"
@@ -92,14 +94,42 @@ func (w *Worker) shutdown() {
 	_ = w.cmd.Wait()
 }
 
+func runMetricsLoop(stop <-chan struct{}, cpuBar, ramBar, gpuBar, vramBar, tempBar *vBar) {
+	_ = collect()
+	tick := time.NewTicker(1 * time.Second)
+	defer tick.Stop()
+
+	apply := func(s sample) {
+		cpuBar.set(s.cpuPct/100, fmt.Sprintf("%.0f%%", s.cpuPct))
+		ramBar.set(s.ramPct/100, fmt.Sprintf("%.1fG", s.ramUsedGB))
+		if s.hasGPU {
+			gpuBar.set(s.gpuPct/100, fmt.Sprintf("%.0f%%", s.gpuPct))
+			vramBar.set(s.vramPct/100, fmt.Sprintf("%.1fG", s.vramUsedMB/1024))
+			tempBar.set(s.tempC/100, fmt.Sprintf("%.0f°", s.tempC))
+		} else {
+			gpuBar.set(0, "n/a")
+			vramBar.set(0, "n/a")
+			tempBar.set(0, "n/a")
+		}
+	}
+
+	for {
+		select {
+		case <-stop:
+			return
+		case <-tick.C:
+			s := collect()
+			fyne.Do(func() { apply(s) })
+		}
+	}
+}
+
 func main() {
 	a := app.New()
 	win := a.NewWindow("OCR Works")
 
 	worker := &Worker{}
 	defer worker.shutdown()
-
-	tessdataDir, _ := filepath.Abs(filepath.Join("..", "tessdata"))
 
 	imgCanvas := canvas.NewImageFromImage(nil)
 	imgCanvas.FillMode = canvas.ImageFillContain
@@ -246,12 +276,9 @@ func main() {
 
 		go func() {
 			resp, err := worker.request(map[string]any{
-				"cmd":      "ocr",
-				"path":     path,
-				"page":     page,
-				"lang":     "eng",
-				"dpi":      300,
-				"tessdata": tessdataDir,
+				"cmd":  "ocr",
+				"path": path,
+				"page": page,
 			})
 			if err != nil {
 				fyne.Do(func() {
@@ -300,7 +327,18 @@ func main() {
 	split := container.NewHSplit(scrollable, textArea)
 	split.Offset = 0.6
 
-	win.SetContent(container.NewBorder(topBar, nil, nil, nil, split))
+	cpuBar := newVBar("CPU", color.NRGBA{R: 80, G: 170, B: 220, A: 255})
+	ramBar := newVBar("RAM", color.NRGBA{R: 110, G: 200, B: 130, A: 255})
+	gpuBar := newVBar("GPU", color.NRGBA{R: 220, G: 140, B: 80, A: 255})
+	vramBar := newVBar("VRAM", color.NRGBA{R: 200, G: 110, B: 200, A: 255})
+	tempBar := newVBar("TEMP", color.NRGBA{R: 220, G: 90, B: 90, A: 255})
+	metricsCol := container.NewGridWithColumns(5, cpuBar, ramBar, gpuBar, vramBar, tempBar)
+
+	stop := make(chan struct{})
+	defer close(stop)
+	go runMetricsLoop(stop, cpuBar, ramBar, gpuBar, vramBar, tempBar)
+
+	win.SetContent(container.NewBorder(topBar, nil, metricsCol, nil, split))
 	win.Resize(fyne.NewSize(1200, 800))
 	win.CenterOnScreen()
 	win.ShowAndRun()
