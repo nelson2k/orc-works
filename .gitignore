@@ -6,5 +6,5 @@ _docs/key.txt
 __pycache__/
 *.pyc
 node_modules/
-src/venv/
-src/tessdata/
+go-ocr-src/venv/
+go-ocr-src/tessdata/

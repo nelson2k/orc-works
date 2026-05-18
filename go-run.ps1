@@ -1,6 +1,6 @@
 $ErrorActionPreference = "Stop"
 
-Push-Location "$PSScriptRoot\src\gui"
+Push-Location "$PSScriptRoot\go-ocr-src\gui"
 try {
     go run .
 }
