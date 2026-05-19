@@ -1,0 +1,8 @@
+chandra/ — by the same Datalab team that builds Marker. Designed as their newer OCR-VLM, intended to handle pages where Marker fumbles (handwriting, complex tables). Drop-in style, same vendor philosophy → cheapest new engine to add.
+MinerU/ — purpose-built for academic / technical PDFs (formulas, tables, multi-column). Repeatedly beats Marker on research papers in published benchmarks. Worth being a 5th engine.
+opencv-python/ — not an engine, but a pre-processing pass (deskew / denoise / adaptive threshold) feeding every engine would lift quality on phone-photo / scanned pages where today everything degrades.
+Useful sidegrades
+docling/ — IBM's pipeline; very strong on tables and reading-order. Different failure modes than Marker, so good as an alt-engine.
+GLM-OCR/ or MiniCPM-V/ — newer / smaller VLMs that could replace Qwen2.5-VL if it benchmarks better or runs faster on the user's GPU. Same engine slot, different weights.
+moondream2/ — tiny VLM. Niche: a "fast preview OCR" tier for pages users are still scrolling through.
+PaddleOCR/ — only worth the install weight if Asian / handwritten scripts are a real use case.
