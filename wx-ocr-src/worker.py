@@ -440,6 +440,57 @@ def ocr_vlm(path, page):
     }
 
 
+# ---------- Engine: MinerU pipeline (layout + OCR + formula + table) ----------
+
+# MinerU caches its own MineruPipelineModel via ModelSingleton (in-process),
+# so we don't track a module-level handle here. We just unload Marker and VLM
+# before invoking it to free VRAM, then let MinerU manage its own.
+
+def ocr_mineru(path, page, lang="en"):
+    import tempfile
+    from pathlib import Path
+    from mineru.cli.common import do_parse, read_fn
+
+    _unload_marker()
+    _unload_vlm()
+
+    send_stage("loading_mineru")
+    pdf_bytes = read_fn(Path(path))
+    stem = _FS_UNSAFE.sub("_", os.path.splitext(os.path.basename(path))[0])
+
+    with tempfile.TemporaryDirectory(prefix="mineru_") as tmpdir:
+        send_stage("mineru_analyze")
+        do_parse(
+            output_dir=Path(tmpdir),
+            pdf_file_names=[stem],
+            pdf_bytes_list=[pdf_bytes],
+            p_lang_list=[lang],
+            backend="pipeline",
+            parse_method="auto",
+            start_page_id=page,
+            end_page_id=page,
+            formula_enable=True,
+            table_enable=True,
+        )
+        md_candidates = list(Path(tmpdir).glob(f"{stem}/**/{stem}.md"))
+        if not md_candidates:
+            return {
+                "type": "error",
+                "message": "mineru produced no markdown output",
+            }
+        text = md_candidates[0].read_text(encoding="utf-8")
+
+    send_stage("saving")
+    out_dir = _save_page_output(path, page, text, {})
+    return {
+        "type": "text",
+        "engine": "mineru",
+        "page": page,
+        "text": text,
+        "saved_to": out_dir,
+    }
+
+
 # ---------- Quality gate for auto mode ----------
 
 # Marker output below this many characters is treated as a recognition
@@ -503,6 +554,8 @@ def ocr(path, page, engine="auto", use_llm=False):
         return ocr_marker(path, page, use_llm=True)
     if engine == "vlm":
         return ocr_vlm(path, page)
+    if engine == "mineru":
+        return ocr_mineru(path, page)
     return {"type": "error", "message": f"unknown engine: {engine}"}
 
 

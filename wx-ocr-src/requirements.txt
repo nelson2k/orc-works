@@ -13,3 +13,8 @@ marker-pdf
 transformers>=4.49
 accelerate
 autoawq
+
+# MinerU pipeline engine — layout + OCR + formula + table, no VLM.
+# Pipeline extras pull torch/torchvision/transformers/onnxruntime/etc.
+# Coexists with Qwen2.5-VL-AWQ (no >=4.57 transformers bump from this extra).
+mineru[pipeline]

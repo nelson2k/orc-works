@@ -51,6 +51,7 @@ const std::vector<std::pair<wxString, std::string>> kEngines = {
     {"Marker",           "marker"},
     {"Marker + LLM",     "marker_llm"},
     {"VLM (Qwen2.5-VL)", "vlm"},
+    {"MinerU",           "mineru"},
 };
 
 std::string base64Decode(const std::string& in) {
