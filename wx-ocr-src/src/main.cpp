@@ -21,6 +21,9 @@ using nlohmann::json;
 
 namespace {
 
+const wxColour kBg(45, 45, 48);
+const wxColour kFg(220, 220, 220);
+
 const std::vector<std::pair<wxString, std::string>> kEngines = {
     {"Auto",             "auto"},
     {"Marker",           "marker"},
@@ -127,10 +130,21 @@ MainFrame::MainFrame()
 
     wxInitAllImageHandlers();
 
+#ifdef __WXMSW__
+    SetIcon(wxICON(orcgui));
+#endif
+
+    SetBackgroundColour(kBg);
+    SetForegroundColour(kFg);
+
     auto* root = new wxPanel(this);
+    root->SetBackgroundColour(kBg);
+    root->SetForegroundColour(kFg);
 
     // Top bar
     auto* topPanel = new wxPanel(root);
+    topPanel->SetBackgroundColour(kBg);
+    topPanel->SetForegroundColour(kFg);
     openBtn_ = new wxButton(topPanel, wxID_ANY, "Open PDF");
 
     wxArrayString engineNames;
@@ -158,6 +172,8 @@ MainFrame::MainFrame()
 
     // Metrics column (5 thin vertical bars side by side, fixed width strip)
     auto* metricsPanel = new wxPanel(root, wxID_ANY, wxDefaultPosition, wxSize(180, -1));
+    metricsPanel->SetBackgroundColour(kBg);
+    metricsPanel->SetForegroundColour(kFg);
     cpuBar_  = new VBar(metricsPanel, "CPU",  wxColour(80, 170, 220));
     ramBar_  = new VBar(metricsPanel, "RAM",  wxColour(110, 200, 130));
     gpuBar_  = new VBar(metricsPanel, "GPU",  wxColour(220, 140, 80));
@@ -177,6 +193,8 @@ MainFrame::MainFrame()
     preview_ = new ZoomPanel(splitter);
     textArea_ = new wxTextCtrl(splitter, wxID_ANY, "", wxDefaultPosition, wxDefaultSize,
                                wxTE_MULTILINE | wxTE_DONTWRAP);
+    textArea_->SetBackgroundColour(wxColour(30, 30, 30));
+    textArea_->SetForegroundColour(kFg);
     splitter->SplitVertically(preview_, textArea_);
     splitter->SetSashGravity(0.6);
     splitter->SetMinimumPaneSize(100);
@@ -188,6 +206,8 @@ MainFrame::MainFrame()
 
     // Status bar text
     statusLabel_ = new wxStaticText(root, wxID_ANY, "");
+    statusLabel_->SetForegroundColour(kFg);
+    pageLabel_->SetForegroundColour(kFg);
 
     auto* rootSizer = new wxBoxSizer(wxVERTICAL);
     rootSizer->Add(topPanel, 0, wxEXPAND);
@@ -528,6 +548,9 @@ void MainFrame::OnExtractPDF(wxCommandEvent&) {
 class App : public wxApp {
 public:
     bool OnInit() override {
+#ifdef __WXMSW__
+        MSWEnableDarkMode(DarkMode_Always);
+#endif
         auto* frame = new MainFrame();
         frame->Show();
         return true;
