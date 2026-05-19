@@ -581,7 +581,6 @@ void MainFrame::OnExtractPDF(wxCommandEvent&) {
     statusLabel_->SetLabel(wxString::Format("starting PDF extract (%s): %d pages", engine, total));
 
     std::thread([this, path, total, engine]() {
-        std::ostringstream allText;
         std::string lastSavedTo;
         bool failed = false;
 
@@ -633,14 +632,11 @@ void MainFrame::OnExtractPDF(wxCommandEvent&) {
                 std::string savedTo = resp.value("saved_to", "");
                 std::string used = resp.value("engine", "");
                 if (!savedTo.empty()) lastSavedTo = savedTo;
-                if (allText.tellp() > 0) allText << "\n\n";
-                allText << "# Page " << (page + 1) << "\n\n" << text;
 
-                std::string snapshot = allText.str();
                 std::string suffix = used.empty() ? "" : " [" + used + "]";
                 int pageOneIndexed = page + 1;
-                CallAfter([this, snapshot, pageOneIndexed, total, suffix]() {
-                    textArea_->SetValue(wxString::FromUTF8(snapshot));
+                CallAfter([this, text, pageOneIndexed, total, suffix]() {
+                    textArea_->SetValue(wxString::FromUTF8(text));
                     statusLabel_->SetLabel(wxString::Format(
                         "extract PDF: completed page %d of %d%s",
                         pageOneIndexed, total, suffix));
