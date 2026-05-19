@@ -223,8 +223,8 @@ MainFrame::MainFrame()
                                wxTE_MULTILINE | wxTE_DONTWRAP);
     textArea_->SetBackgroundColour(wxColour(30, 30, 30));
     textArea_->SetForegroundColour(kFg);
-    splitter->SplitVertically(preview_, textArea_);
-    splitter->SetSashGravity(0.6);
+    splitter->SplitVertically(preview_, textArea_, FromDIP(700));
+    splitter->SetSashGravity(0.7);
     splitter->SetMinimumPaneSize(FromDIP(100));
 
     // Wire up outer split
