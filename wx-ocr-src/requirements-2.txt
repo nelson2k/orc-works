@@ -1,0 +1,7 @@
+# Stage 2: install AFTER requirements-1.txt.
+# MinerU's Pillow>=11.0.0 pin will bump Pillow over marker-pdf's <11 pin;
+# pip will emit a compatibility warning for marker-pdf but the runtime is
+# fine in practice (this is the same configuration we already run on
+# Windows).
+
+mineru[pipeline]
