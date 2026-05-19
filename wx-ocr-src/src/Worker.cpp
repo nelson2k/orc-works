@@ -129,12 +129,16 @@ nlohmann::json Worker::request(const nlohmann::json& req, ProgressCallback onPro
         if (!readLine(line)) {
             throw std::runtime_error("worker closed stdout");
         }
+        if (line.empty()) continue;
+        // The worker isolates its protocol stream from FD 1 so native libraries
+        // can't pollute the channel, but be defensive: a stray non-JSON line is
+        // logged-and-ignored rather than killing the whole request.
+        if (line[0] != '{' && line[0] != '[') continue;
         nlohmann::json resp;
         try {
             resp = nlohmann::json::parse(line);
-        } catch (const std::exception& e) {
-            throw std::runtime_error(std::string("decode worker reply: ") + e.what()
-                                     + " (raw: " + line + ")");
+        } catch (const std::exception&) {
+            continue;
         }
         auto t = resp.value("type", "");
         if (t == "progress") {

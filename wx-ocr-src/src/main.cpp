@@ -594,6 +594,26 @@ void MainFrame::OnExtractPDF(wxCommandEvent&) {
                     "extract PDF (%s): page %d of %d", engine, page + 1, total));
             });
 
+            // Render the page to keep the preview in sync with the page being
+            // OCR'd. Engines that emit per-page "image" progress events
+            // (e.g. marker's layout overlay) will overwrite this shortly.
+            try {
+                json renderReq = {{"cmd", "render"}, {"path", path}, {"page", page}, {"dpi", 120}};
+                json renderResp = worker_.request(renderReq);
+                if (renderResp.value("type", "") != "error") {
+                    std::string b64 = renderResp.value("png_base64", "");
+                    std::string bytes = base64Decode(b64);
+                    wxImage img = imageFromPngBytes(bytes);
+                    if (img.IsOk()) {
+                        CallAfter([this, img]() { preview_->SetImage(img); });
+                    }
+                }
+            } catch (const std::exception&) {
+                // Don't fail the whole extract if a render hiccups; OCR can still proceed.
+            }
+
+            if (stopRequested_.load()) { failed = true; break; }
+
             auto progress = MakeOCRProgress(page);
             try {
                 json req = {{"cmd", "ocr"}, {"path", path}, {"page", page}, {"engine", engine}};

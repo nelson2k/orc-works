@@ -9,6 +9,20 @@ import threading
 import traceback
 
 
+# ---- Protocol stdout isolation ----------------------------------------------
+# Native libraries (MuPDF, libcms, etc.) sometimes printf warnings/errors
+# straight to FD 1, which would corrupt the JSON protocol we share with the
+# parent. Dup FD 1 into a private FD for our protocol, then redirect FD 1
+# itself (and Python's sys.stdout) at NUL so any leak is swallowed.
+_proto_fd = os.dup(1)
+_proto_stream = os.fdopen(_proto_fd, "w", buffering=1, encoding="utf-8", newline="\n")
+
+_devnull_w_fd = os.open(os.devnull, os.O_WRONLY)
+os.dup2(_devnull_w_fd, 1)
+os.close(_devnull_w_fd)
+sys.stdout = open(os.devnull, "w", buffering=1, encoding="utf-8")
+
+
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 OUTPUT_ROOT = os.path.join(REPO_ROOT, "output")
 REPOS_FOLDER = os.path.join(REPO_ROOT, "repos-folder")
@@ -21,8 +35,8 @@ _send_lock = threading.Lock()
 def send(msg):
     line = json.dumps(msg) + "\n"
     with _send_lock:
-        sys.stdout.write(line)
-        sys.stdout.flush()
+        _proto_stream.write(line)
+        _proto_stream.flush()
 
 
 def send_stage(name):
