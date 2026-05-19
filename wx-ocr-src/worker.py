@@ -643,7 +643,36 @@ def _marker_text_is_bad(text):
 
 # ---------- Engine dispatch ----------
 
+def _cached_page_output(pdf_path, page):
+    """Return (text, out_dir) if a previous extraction wrote the .md, else None.
+
+    Lets Extract PDF resume after an interruption without redoing work the
+    last run already finished. The on-disk artifact IS the cache key — to
+    force a re-extract, delete the .md.
+    """
+    pdf_stem = _FS_UNSAFE.sub("_", os.path.splitext(os.path.basename(pdf_path))[0])
+    out_dir = os.path.join(OUTPUT_ROOT, pdf_stem)
+    md_path = os.path.join(out_dir, f"page_{page + 1:04d}.md")
+    if not os.path.exists(md_path):
+        return None
+    try:
+        with open(md_path, "r", encoding="utf-8") as f:
+            return f.read(), out_dir
+    except Exception:
+        return None
+
+
 def ocr(path, page, engine="auto", use_llm=False):
+    cached = _cached_page_output(path, page)
+    if cached is not None:
+        text, out_dir = cached
+        return {
+            "type": "text",
+            "engine": "cached",
+            "page": page,
+            "text": text,
+            "saved_to": out_dir,
+        }
     if engine == "auto":
         if _has_digital_text(path, page):
             return ocr_digital(path, page)
