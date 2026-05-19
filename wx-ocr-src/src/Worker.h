@@ -15,6 +15,8 @@ class Worker {
 public:
     using ProgressCallback = std::function<void(const nlohmann::json&)>;
 
+    enum class Mode { Local, Remote };
+
     Worker() = default;
     ~Worker();
 
@@ -25,13 +27,20 @@ public:
     void shutdown();
     void cancel();
 
+    // Swap the backend. If the worker is already started, it is shut down so
+    // the next request() lazily relaunches against the new transport.
+    void setMode(Mode m);
+    Mode mode() const { return mode_; }
+
 private:
     bool ensureStarted();
     bool writeLine(const std::string& line);
     bool readLine(std::string& out);
+    std::wstring buildCommandLine() const;
 
     std::mutex mu_;
     bool started_ = false;
+    Mode mode_ = Mode::Local;
 
 #ifdef _WIN32
     HANDLE childIn_ = INVALID_HANDLE_VALUE;

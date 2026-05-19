@@ -25,6 +25,29 @@ std::wstring projectRoot() {
     std::wstring exeDir = (slash == std::wstring::npos) ? L"." : path.substr(0, slash);
     return exeDir + L"\\..\\";
 }
+
+std::wstring envOr(const wchar_t* name, const wchar_t* fallback) {
+    wchar_t buf[1024];
+    DWORD n = GetEnvironmentVariableW(name, buf, 1024);
+    if (n == 0 || n >= 1024) return fallback;
+    return std::wstring(buf, n);
+}
+}
+
+std::wstring Worker::buildCommandLine() const {
+    if (mode_ == Mode::Local) {
+        std::wstring root = projectRoot();
+        return L"\"" + root + L"venv\\Scripts\\python.exe\" \""
+               + root + L"worker.py\"";
+    }
+    // Remote: launch ssh.exe, which transparently relays stdin/stdout
+    // to the remote python process. Endpoints are env-overridable so
+    // we don't hardcode a single user's setup forever.
+    std::wstring target = envOr(L"OCR_REMOTE_SSH_TARGET", L"nelson@192.168.10.200");
+    std::wstring py     = envOr(L"OCR_REMOTE_PYTHON",     L"/home/nelson/dev/017-orc-works/wx-ocr-src/venv/bin/python");
+    std::wstring worker = envOr(L"OCR_REMOTE_WORKER_PY",  L"/home/nelson/dev/017-orc-works/wx-ocr-src/worker.py");
+    // -T avoids allocating a pty (cleaner pipe behavior).
+    return L"ssh.exe -T " + target + L" \"" + py + L" " + worker + L"\"";
 }
 
 bool Worker::ensureStarted() {
@@ -56,9 +79,7 @@ bool Worker::ensureStarted() {
 
     PROCESS_INFORMATION pi{};
 
-    std::wstring root = projectRoot();
-    std::wstring cmd = L"\"" + root + L"venv\\Scripts\\python.exe\" \""
-                       + root + L"worker.py\"";
+    std::wstring cmd = buildCommandLine();
     std::vector<wchar_t> cmdBuf(cmd.begin(), cmd.end());
     cmdBuf.push_back(L'\0');
 
@@ -147,6 +168,14 @@ nlohmann::json Worker::request(const nlohmann::json& req, ProgressCallback onPro
         }
         return resp;
     }
+}
+
+void Worker::setMode(Mode m) {
+    if (mode_ == m) return;
+    // Force the current worker (if any) to exit; the next request() relaunches
+    // against the new transport.
+    shutdown();
+    mode_ = m;
 }
 
 void Worker::cancel() {

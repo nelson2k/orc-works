@@ -19,6 +19,7 @@
 
 #include <atomic>
 #include <memory>
+#include <mutex>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -115,6 +116,9 @@ private:
     void SetBusy(bool busy);
     void UpdateLabel();
     std::string CurrentEngine();
+    std::string PathForWorker();   // returns the path string sent to worker.py
+    bool ScpUploadSync(const wxString& local, const std::string& remote);
+    void OnBackendChange(wxCommandEvent&);
 
     std::function<void(const json&)> MakeOCRProgress(int page);
 
@@ -128,6 +132,7 @@ private:
     FlatButton* extractPDFBtn_ = nullptr;
     FlatButton* stopBtn_ = nullptr;
     wxChoice* engineChoice_ = nullptr;
+    wxChoice* backendChoice_ = nullptr;
     wxStaticText* pageLabel_ = nullptr;
     wxStaticText* statusLabel_ = nullptr;
     wxTextCtrl* textArea_ = nullptr;
@@ -142,6 +147,9 @@ private:
     wxTimer metricsTimer_;
 
     wxString curPath_;
+    wxString remoteUploadedFor_;   // local path the remote upload corresponds to (else empty)
+    std::string remotePdfPath_;    // remote-side path of the uploaded PDF
+    std::mutex pathMu_;            // guards remoteUploadedFor_ / remotePdfPath_
     int curPage_ = 0;
     int curTotal_ = 0;
     bool ctrlDown_ = false;
@@ -202,6 +210,12 @@ MainFrame::MainFrame()
     engineChoice_ = new wxChoice(topPanel, wxID_ANY, wxDefaultPosition, wxDefaultSize, engineNames);
     engineChoice_->SetSelection(0);
 
+    wxArrayString backendNames;
+    backendNames.Add("Local");
+    backendNames.Add("Remote");
+    backendChoice_ = new wxChoice(topPanel, wxID_ANY, wxDefaultPosition, wxDefaultSize, backendNames);
+    backendChoice_->SetSelection(0);
+
     extractPageBtn_ = new FlatButton(topPanel, "Extract Page", loadIcon("file-text.svg"));
     extractPDFBtn_ = new FlatButton(topPanel, "Extract PDF", loadIcon("files.svg"));
     stopBtn_ = new FlatButton(topPanel, "Stop");
@@ -214,6 +228,7 @@ MainFrame::MainFrame()
     auto* topSizer = new wxBoxSizer(wxHORIZONTAL);
     topSizer->Add(openBtn_, 0, wxALL, 4);
     topSizer->Add(engineChoice_, 0, wxALL | wxALIGN_CENTER_VERTICAL, 4);
+    topSizer->Add(backendChoice_, 0, wxALL | wxALIGN_CENTER_VERTICAL, 4);
     topSizer->Add(extractPageBtn_, 0, wxALL, 4);
     topSizer->Add(extractPDFBtn_, 0, wxALL, 4);
     topSizer->Add(stopBtn_, 0, wxALL, 4);
@@ -291,6 +306,7 @@ MainFrame::MainFrame()
     extractPageBtn_->Bind(wxEVT_BUTTON, &MainFrame::OnExtractPage, this);
     extractPDFBtn_->Bind(wxEVT_BUTTON, &MainFrame::OnExtractPDF, this);
     stopBtn_->Bind(wxEVT_BUTTON, &MainFrame::OnStop, this);
+    backendChoice_->Bind(wxEVT_CHOICE, &MainFrame::OnBackendChange, this);
 
     Bind(wxEVT_CHAR_HOOK, [this](wxKeyEvent& e) {
         int k = e.GetKeyCode();
@@ -363,12 +379,14 @@ void MainFrame::SetBusy(bool busy) {
         extractPageBtn_->Disable();
         extractPDFBtn_->Disable();
         engineChoice_->Disable();
+        backendChoice_->Disable();
         stopBtn_->Enable();
         return;
     }
     stopBtn_->Disable();
     openBtn_->Enable();
     engineChoice_->Enable();
+    backendChoice_->Enable();
     if (curTotal_ == 0) {
         prevBtn_->Disable();
         nextBtn_->Disable();
@@ -405,6 +423,11 @@ void MainFrame::OnOpen(wxCommandEvent&) {
     curPath_ = dlg.GetPath();
     curPage_ = 0;
     curTotal_ = 0;
+    {
+        std::lock_guard<std::mutex> lk(pathMu_);
+        remoteUploadedFor_.Clear();
+        remotePdfPath_.clear();
+    }
     textArea_->SetValue("");
     SetTitle(wxString::FromUTF8("OCR Works \xE2\x80\x94 ") + wxFileName(curPath_).GetFullName());
     fitOnNextImage_ = true;
@@ -423,8 +446,18 @@ void MainFrame::RenderPage(int page) {
     if (curPath_.IsEmpty()) return;
     SetBusy(true);
 
-    std::string path = std::string(curPath_.utf8_str());
-    std::thread([this, path, page]() {
+    std::thread([this, page]() {
+        std::string path;
+        try {
+            path = PathForWorker();
+        } catch (const std::exception& e) {
+            std::string msg = e.what();
+            CallAfter([this, msg]() {
+                wxMessageBox(msg, "Error", wxOK | wxICON_ERROR, this);
+                SetBusy(false);
+            });
+            return;
+        }
         json req = {{"cmd", "render"}, {"path", path}, {"page", page}, {"dpi", 120}};
         try {
             json resp = worker_.request(req);
@@ -506,6 +539,77 @@ std::function<void(const json&)> MainFrame::MakeOCRProgress(int page) {
     };
 }
 
+bool MainFrame::ScpUploadSync(const wxString& local, const std::string& remote) {
+    const char* env = std::getenv("OCR_REMOTE_SSH_TARGET");
+    wxString target = wxString::FromUTF8((env && *env) ? env : "nelson@192.168.10.200");
+    std::wstring cmd = L"scp.exe -q \"" + local.ToStdWstring() + L"\" "
+                       + target.ToStdWstring() + L":"
+                       + std::wstring(remote.begin(), remote.end());
+    std::vector<wchar_t> cmdBuf(cmd.begin(), cmd.end());
+    cmdBuf.push_back(L'\0');
+
+    STARTUPINFOW si{};
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = SW_HIDE;
+    PROCESS_INFORMATION pi{};
+    BOOL ok = CreateProcessW(nullptr, cmdBuf.data(), nullptr, nullptr, FALSE,
+                             CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+    if (!ok) return false;
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    DWORD exitCode = 1;
+    GetExitCodeProcess(pi.hProcess, &exitCode);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return exitCode == 0;
+}
+
+std::string MainFrame::PathForWorker() {
+    if (worker_.mode() == Worker::Mode::Local) {
+        return std::string(curPath_.utf8_str());
+    }
+    // Remote: upload once per opened PDF.
+    {
+        std::lock_guard<std::mutex> lk(pathMu_);
+        if (!curPath_.IsEmpty() && curPath_ == remoteUploadedFor_ && !remotePdfPath_.empty()) {
+            return remotePdfPath_;
+        }
+    }
+    wxString local = curPath_;
+    if (local.IsEmpty()) return "";
+
+    std::string base = std::string(wxFileName(local).GetFullName().utf8_str());
+    // Replace spaces / shell-unsafe chars in the remote filename.
+    for (char& c : base) {
+        if (c == ' ' || c == '\'' || c == '"' || c == '`' || c == '$') c = '_';
+    }
+    std::string remotePath = "/tmp/ocr-works-" + base;
+
+    CallAfter([this]() { statusLabel_->SetLabel("uploading PDF to remote..."); });
+    bool ok = ScpUploadSync(local, remotePath);
+    if (!ok) {
+        throw std::runtime_error("scp upload to remote failed");
+    }
+    {
+        std::lock_guard<std::mutex> lk(pathMu_);
+        remoteUploadedFor_ = local;
+        remotePdfPath_ = remotePath;
+    }
+    CallAfter([this]() { statusLabel_->SetLabel(""); });
+    return remotePath;
+}
+
+void MainFrame::OnBackendChange(wxCommandEvent&) {
+    if (busy_) return;   // SetBusy disables the choice anyway; double-guard
+    Worker::Mode m = (backendChoice_->GetSelection() == 1)
+        ? Worker::Mode::Remote : Worker::Mode::Local;
+    worker_.setMode(m);
+    // Force the next worker request to re-upload (path semantics change).
+    std::lock_guard<std::mutex> lk(pathMu_);
+    remoteUploadedFor_.Clear();
+    remotePdfPath_.clear();
+}
+
 void MainFrame::OnStop(wxCommandEvent&) {
     if (!busy_) return;
     stopRequested_ = true;
@@ -517,7 +621,6 @@ void MainFrame::OnExtractPage(wxCommandEvent&) {
     if (curPath_.IsEmpty()) return;
     std::string engine = CurrentEngine();
     int page = curPage_;
-    std::string path = std::string(curPath_.utf8_str());
 
     stopRequested_ = false;
     SetBusy(true);
@@ -525,7 +628,18 @@ void MainFrame::OnExtractPage(wxCommandEvent&) {
     statusLabel_->SetLabel(wxString::Format("starting (%s)...", engine));
 
     auto progress = MakeOCRProgress(page);
-    std::thread([this, path, page, engine, progress]() {
+    std::thread([this, page, engine, progress]() {
+        std::string path;
+        try {
+            path = PathForWorker();
+        } catch (const std::exception& e) {
+            std::string msg = e.what();
+            CallAfter([this, msg]() {
+                wxMessageBox(msg, "Error", wxOK | wxICON_ERROR, this);
+                SetBusy(false);
+            });
+            return;
+        }
         json req = {{"cmd", "ocr"}, {"path", path}, {"page", page}, {"engine", engine}};
         try {
             json resp = worker_.request(req, progress);
@@ -573,14 +687,24 @@ void MainFrame::OnExtractPDF(wxCommandEvent&) {
     if (curPath_.IsEmpty() || curTotal_ == 0) return;
     std::string engine = CurrentEngine();
     int total = curTotal_;
-    std::string path = std::string(curPath_.utf8_str());
 
     stopRequested_ = false;
     SetBusy(true);
     textArea_->SetValue("");
     statusLabel_->SetLabel(wxString::Format("starting PDF extract (%s): %d pages", engine, total));
 
-    std::thread([this, path, total, engine]() {
+    std::thread([this, total, engine]() {
+        std::string path;
+        try {
+            path = PathForWorker();
+        } catch (const std::exception& e) {
+            std::string msg = e.what();
+            CallAfter([this, msg]() {
+                wxMessageBox(msg, "Error", wxOK | wxICON_ERROR, this);
+                SetBusy(false);
+            });
+            return;
+        }
         std::string lastSavedTo;
         bool failed = false;
 
