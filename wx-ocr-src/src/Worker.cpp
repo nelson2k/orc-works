@@ -1,5 +1,6 @@
 #include "Worker.h"
 
+#include <cstdio>
 #include <cstring>
 #include <memory>
 #include <stdexcept>
@@ -66,6 +67,17 @@ struct HInternetCloser {
 };
 using HInternet = std::unique_ptr<void, HInternetCloser>;
 
+// Tag the WinHTTP error code onto a message so callers see *why* it failed
+// instead of a generic "WinHttpSendRequest failed". WinHTTP errors live at
+// 12000+ and don't translate well through FormatMessageW; the numeric code
+// is more useful in practice (matches docs/google searches directly).
+std::string winhttpErr(const char* op) {
+    DWORD code = GetLastError();
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), " (winhttp err=%lu)", (unsigned long)code);
+    return std::string(op) + " failed" + buf;
+}
+
 // One blocking POST. Reads the whole body and returns it as a string.
 // Throws on transport failure.
 std::string httpPost(const std::wstring& baseUrl,
@@ -81,17 +93,17 @@ std::string httpPost(const std::wstring& baseUrl,
     HInternet session(WinHttpOpen(L"orcgui/1.0",
                                   WINHTTP_ACCESS_TYPE_NO_PROXY,
                                   WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
-    if (!session) throw std::runtime_error("WinHttpOpen failed");
+    if (!session) throw std::runtime_error(winhttpErr("WinHttpOpen"));
     WinHttpSetTimeouts(session.get(), timeoutMs, timeoutMs, timeoutMs, timeoutMs);
 
     HInternet conn(WinHttpConnect(session.get(), u.host.c_str(), (INTERNET_PORT)u.port, 0));
-    if (!conn) throw std::runtime_error("WinHttpConnect failed");
+    if (!conn) throw std::runtime_error(winhttpErr("WinHttpConnect"));
 
     HInternet req(WinHttpOpenRequest(conn.get(), L"POST", path.c_str(),
                                      nullptr, WINHTTP_NO_REFERER,
                                      WINHTTP_DEFAULT_ACCEPT_TYPES,
                                      u.https ? WINHTTP_FLAG_SECURE : 0));
-    if (!req) throw std::runtime_error("WinHttpOpenRequest failed");
+    if (!req) throw std::runtime_error(winhttpErr("WinHttpOpenRequest"));
 
     std::wstring headers = L"Content-Type: ";
     headers += contentType;
@@ -100,10 +112,10 @@ std::string httpPost(const std::wstring& baseUrl,
                             headers.c_str(), (DWORD)headers.size(),
                             (LPVOID)body.data(), (DWORD)body.size(),
                             (DWORD)body.size(), 0)) {
-        throw std::runtime_error("WinHttpSendRequest failed");
+        throw std::runtime_error(winhttpErr("WinHttpSendRequest"));
     }
     if (!WinHttpReceiveResponse(req.get(), nullptr)) {
-        throw std::runtime_error("WinHttpReceiveResponse failed");
+        throw std::runtime_error(winhttpErr("WinHttpReceiveResponse"));
     }
 
     std::string out;
@@ -129,25 +141,25 @@ std::string httpGet(const std::wstring& baseUrl,
     HInternet session(WinHttpOpen(L"orcgui/1.0",
                                   WINHTTP_ACCESS_TYPE_NO_PROXY,
                                   WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
-    if (!session) throw std::runtime_error("WinHttpOpen failed");
+    if (!session) throw std::runtime_error(winhttpErr("WinHttpOpen"));
     WinHttpSetTimeouts(session.get(), timeoutMs, timeoutMs, timeoutMs, timeoutMs);
 
     HInternet conn(WinHttpConnect(session.get(), u.host.c_str(), (INTERNET_PORT)u.port, 0));
-    if (!conn) throw std::runtime_error("WinHttpConnect failed");
+    if (!conn) throw std::runtime_error(winhttpErr("WinHttpConnect"));
 
     HInternet req(WinHttpOpenRequest(conn.get(), L"GET", path.c_str(),
                                      nullptr, WINHTTP_NO_REFERER,
                                      WINHTTP_DEFAULT_ACCEPT_TYPES,
                                      u.https ? WINHTTP_FLAG_SECURE : 0));
-    if (!req) throw std::runtime_error("WinHttpOpenRequest failed");
+    if (!req) throw std::runtime_error(winhttpErr("WinHttpOpenRequest"));
 
     if (!WinHttpSendRequest(req.get(),
                             WINHTTP_NO_ADDITIONAL_HEADERS, 0,
                             WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) {
-        throw std::runtime_error("WinHttpSendRequest failed");
+        throw std::runtime_error(winhttpErr("WinHttpSendRequest"));
     }
     if (!WinHttpReceiveResponse(req.get(), nullptr)) {
-        throw std::runtime_error("WinHttpReceiveResponse failed");
+        throw std::runtime_error(winhttpErr("WinHttpReceiveResponse"));
     }
 
     std::string out;
@@ -456,18 +468,18 @@ nlohmann::json Worker::requestRemote(const nlohmann::json& req, ProgressCallback
     HInternet session(WinHttpOpen(L"orcgui/1.0",
                                   WINHTTP_ACCESS_TYPE_NO_PROXY,
                                   WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
-    if (!session) throw std::runtime_error("WinHttpOpen failed");
+    if (!session) throw std::runtime_error(winhttpErr("WinHttpOpen"));
     // OCR can take many minutes; don't time out the read side aggressively.
     WinHttpSetTimeouts(session.get(), 10000, 10000, 10000, /*recv*/ 10 * 60 * 1000);
 
     HInternet conn(WinHttpConnect(session.get(), u.host.c_str(), (INTERNET_PORT)u.port, 0));
-    if (!conn) throw std::runtime_error("WinHttpConnect failed");
+    if (!conn) throw std::runtime_error(winhttpErr("WinHttpConnect"));
 
     HInternet hreq(WinHttpOpenRequest(conn.get(), L"POST", L"/v1/ocr",
                                       nullptr, WINHTTP_NO_REFERER,
                                       WINHTTP_DEFAULT_ACCEPT_TYPES,
                                       u.https ? WINHTTP_FLAG_SECURE : 0));
-    if (!hreq) throw std::runtime_error("WinHttpOpenRequest failed");
+    if (!hreq) throw std::runtime_error(winhttpErr("WinHttpOpenRequest"));
 
     nlohmann::json body = req;
     body.erase("cmd");
@@ -477,10 +489,10 @@ nlohmann::json Worker::requestRemote(const nlohmann::json& req, ProgressCallback
     if (!WinHttpSendRequest(hreq.get(), headers, (DWORD)-1L,
                             (LPVOID)payload.data(), (DWORD)payload.size(),
                             (DWORD)payload.size(), 0)) {
-        throw std::runtime_error("WinHttpSendRequest failed");
+        throw std::runtime_error(winhttpErr("WinHttpSendRequest"));
     }
     if (!WinHttpReceiveResponse(hreq.get(), nullptr)) {
-        throw std::runtime_error("WinHttpReceiveResponse failed");
+        throw std::runtime_error(winhttpErr("WinHttpReceiveResponse"));
     }
 
     // Publish the request handle so cancel() can abort us from another thread.
