@@ -3,11 +3,7 @@
 #include <wx/dcbuffer.h>
 
 namespace {
-const wxColour kNormal (33, 150, 243);
-const wxColour kHover  (66, 165, 245);
-const wxColour kPressed(21, 101, 192);
-const wxColour kDisabled(70, 90, 110);
-const wxColour kText   (255, 255, 255);
+const wxColour kText(255, 255, 255);
 }
 
 FlatButton::FlatButton(wxWindow* parent, const wxString& label,
@@ -36,6 +32,13 @@ FlatButton::FlatButton(wxWindow* parent, const wxString& label,
     Bind(wxEVT_LEFT_DOWN, &FlatButton::OnDown, this);
     Bind(wxEVT_LEFT_UP, &FlatButton::OnUp, this);
     Bind(wxEVT_MOUSE_CAPTURE_LOST, &FlatButton::OnCaptureLost, this);
+}
+
+void FlatButton::SetColors(const wxColour& normal, const wxColour& hover, const wxColour& pressed) {
+    normalCol_ = normal;
+    hoverCol_ = hover;
+    pressedCol_ = pressed;
+    Refresh(false);
 }
 
 bool FlatButton::Enable(bool enable) {
@@ -94,9 +97,9 @@ void FlatButton::OnPaint(wxPaintEvent&) {
     wxSize sz = GetClientSize();
 
     wxColour bg;
-    if (pressed_)    bg = kPressed;
-    else if (hover_) bg = kHover;
-    else             bg = kNormal;
+    if (pressed_)    bg = pressedCol_;
+    else if (hover_) bg = hoverCol_;
+    else             bg = normalCol_;
 
     dc.SetBrush(wxBrush(bg));
     dc.SetPen(*wxTRANSPARENT_PEN);

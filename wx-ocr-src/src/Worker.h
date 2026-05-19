@@ -23,6 +23,7 @@ public:
 
     nlohmann::json request(const nlohmann::json& req, ProgressCallback onProgress = nullptr);
     void shutdown();
+    void cancel();
 
 private:
     bool ensureStarted();

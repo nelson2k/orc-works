@@ -145,6 +145,30 @@ nlohmann::json Worker::request(const nlohmann::json& req, ProgressCallback onPro
     }
 }
 
+void Worker::cancel() {
+    // Hard-stop: kill the worker process. The in-flight request() will
+    // throw on EOF; the next request() will lazily relaunch the worker.
+    if (!started_) return;
+    if (process_ != INVALID_HANDLE_VALUE) {
+        TerminateProcess(process_, 1);
+        WaitForSingleObject(process_, 1000);
+    }
+    if (childIn_ != INVALID_HANDLE_VALUE) {
+        CloseHandle(childIn_);
+        childIn_ = INVALID_HANDLE_VALUE;
+    }
+    if (childOut_ != INVALID_HANDLE_VALUE) {
+        CloseHandle(childOut_);
+        childOut_ = INVALID_HANDLE_VALUE;
+    }
+    if (process_ != INVALID_HANDLE_VALUE) {
+        CloseHandle(process_);
+        process_ = INVALID_HANDLE_VALUE;
+    }
+    started_ = false;
+    readAccum_.clear();
+}
+
 void Worker::shutdown() {
     std::lock_guard<std::mutex> lock(mu_);
     if (!started_) return;

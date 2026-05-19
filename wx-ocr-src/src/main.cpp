@@ -104,6 +104,7 @@ private:
     void OnNext(wxCommandEvent&);
     void OnExtractPage(wxCommandEvent&);
     void OnExtractPDF(wxCommandEvent&);
+    void OnStop(wxCommandEvent&);
     void OnMetricsTick(wxTimerEvent&);
     void OnKeyDown(wxKeyEvent&);
     void OnKeyUp(wxKeyEvent&);
@@ -124,6 +125,7 @@ private:
     FlatButton* nextBtn_ = nullptr;
     FlatButton* extractPageBtn_ = nullptr;
     FlatButton* extractPDFBtn_ = nullptr;
+    FlatButton* stopBtn_ = nullptr;
     wxChoice* engineChoice_ = nullptr;
     wxStaticText* pageLabel_ = nullptr;
     wxStaticText* statusLabel_ = nullptr;
@@ -144,6 +146,7 @@ private:
     bool ctrlDown_ = false;
     bool spaceDown_ = false;
     std::atomic<bool> busy_{false};
+    std::atomic<bool> stopRequested_{false};
 };
 
 MainFrame::MainFrame()
@@ -199,6 +202,8 @@ MainFrame::MainFrame()
 
     extractPageBtn_ = new FlatButton(topPanel, "Extract Page", loadIcon("file-text.svg"));
     extractPDFBtn_ = new FlatButton(topPanel, "Extract PDF", loadIcon("files.svg"));
+    stopBtn_ = new FlatButton(topPanel, "Stop");
+    stopBtn_->SetColors(wxColour(244, 67, 54), wxColour(239, 83, 80), wxColour(211, 47, 47));
 
     prevBtn_ = new FlatButton(topPanel, "Prev", loadIcon("chevron-left.svg"));
     pageLabel_ = new wxStaticText(topPanel, wxID_ANY, "");
@@ -209,6 +214,7 @@ MainFrame::MainFrame()
     topSizer->Add(engineChoice_, 0, wxALL | wxALIGN_CENTER_VERTICAL, 4);
     topSizer->Add(extractPageBtn_, 0, wxALL, 4);
     topSizer->Add(extractPDFBtn_, 0, wxALL, 4);
+    topSizer->Add(stopBtn_, 0, wxALL, 4);
     topSizer->AddStretchSpacer();
     topSizer->Add(prevBtn_, 0, wxALL, 4);
     topSizer->Add(pageLabel_, 0, wxALL | wxALIGN_CENTER_VERTICAL, 4);
@@ -275,12 +281,14 @@ MainFrame::MainFrame()
     nextBtn_->Disable();
     extractPageBtn_->Disable();
     extractPDFBtn_->Disable();
+    stopBtn_->Disable();
 
     openBtn_->Bind(wxEVT_BUTTON, &MainFrame::OnOpen, this);
     prevBtn_->Bind(wxEVT_BUTTON, &MainFrame::OnPrev, this);
     nextBtn_->Bind(wxEVT_BUTTON, &MainFrame::OnNext, this);
     extractPageBtn_->Bind(wxEVT_BUTTON, &MainFrame::OnExtractPage, this);
     extractPDFBtn_->Bind(wxEVT_BUTTON, &MainFrame::OnExtractPDF, this);
+    stopBtn_->Bind(wxEVT_BUTTON, &MainFrame::OnStop, this);
 
     Bind(wxEVT_CHAR_HOOK, [this](wxKeyEvent& e) {
         int k = e.GetKeyCode();
@@ -353,8 +361,10 @@ void MainFrame::SetBusy(bool busy) {
         extractPageBtn_->Disable();
         extractPDFBtn_->Disable();
         engineChoice_->Disable();
+        stopBtn_->Enable();
         return;
     }
+    stopBtn_->Disable();
     openBtn_->Enable();
     engineChoice_->Enable();
     if (curTotal_ == 0) {
@@ -486,12 +496,20 @@ std::function<void(const json&)> MainFrame::MakeOCRProgress(int page) {
     };
 }
 
+void MainFrame::OnStop(wxCommandEvent&) {
+    if (!busy_) return;
+    stopRequested_ = true;
+    statusLabel_->SetLabel("stopping...");
+    worker_.cancel();
+}
+
 void MainFrame::OnExtractPage(wxCommandEvent&) {
     if (curPath_.IsEmpty()) return;
     std::string engine = CurrentEngine();
     int page = curPage_;
     std::string path = std::string(curPath_.utf8_str());
 
+    stopRequested_ = false;
     SetBusy(true);
     textArea_->SetValue("");
     statusLabel_->SetLabel(wxString::Format("starting (%s)...", engine));
@@ -526,10 +544,15 @@ void MainFrame::OnExtractPage(wxCommandEvent&) {
             });
         } catch (const std::exception& e) {
             std::string msg = e.what();
-            CallAfter([this, msg]() {
-                wxMessageBox(msg, "Error", wxOK | wxICON_ERROR, this);
-                textArea_->SetValue("");
-                statusLabel_->SetLabel("");
+            bool cancelled = stopRequested_.load();
+            CallAfter([this, msg, cancelled]() {
+                if (!cancelled) {
+                    wxMessageBox(msg, "Error", wxOK | wxICON_ERROR, this);
+                    textArea_->SetValue("");
+                    statusLabel_->SetLabel("");
+                } else {
+                    statusLabel_->SetLabel("stopped");
+                }
                 SetBusy(false);
             });
         }
@@ -542,6 +565,7 @@ void MainFrame::OnExtractPDF(wxCommandEvent&) {
     int total = curTotal_;
     std::string path = std::string(curPath_.utf8_str());
 
+    stopRequested_ = false;
     SetBusy(true);
     textArea_->SetValue("");
     statusLabel_->SetLabel(wxString::Format("starting PDF extract (%s): %d pages", engine, total));
@@ -552,6 +576,7 @@ void MainFrame::OnExtractPDF(wxCommandEvent&) {
         bool failed = false;
 
         for (int page = 0; page < total && !failed; ++page) {
+            if (stopRequested_.load()) { failed = true; break; }
             CallAfter([this, page, total, engine]() {
                 curPage_ = page;
                 UpdateLabel();
@@ -565,9 +590,10 @@ void MainFrame::OnExtractPDF(wxCommandEvent&) {
                 json resp = worker_.request(req, progress);
                 if (resp.value("type", "") == "error") {
                     std::string msg = resp.value("message", "ocr error");
-                    CallAfter([this, msg]() {
-                        wxMessageBox(msg, "Error", wxOK | wxICON_ERROR, this);
-                        statusLabel_->SetLabel("");
+                    bool cancelled = stopRequested_.load();
+                    CallAfter([this, msg, cancelled]() {
+                        if (!cancelled) wxMessageBox(msg, "Error", wxOK | wxICON_ERROR, this);
+                        statusLabel_->SetLabel(cancelled ? "stopped" : "");
                         SetBusy(false);
                     });
                     failed = true;
@@ -591,9 +617,10 @@ void MainFrame::OnExtractPDF(wxCommandEvent&) {
                 });
             } catch (const std::exception& e) {
                 std::string msg = e.what();
-                CallAfter([this, msg]() {
-                    wxMessageBox(msg, "Error", wxOK | wxICON_ERROR, this);
-                    statusLabel_->SetLabel("");
+                bool cancelled = stopRequested_.load();
+                CallAfter([this, msg, cancelled]() {
+                    if (!cancelled) wxMessageBox(msg, "Error", wxOK | wxICON_ERROR, this);
+                    statusLabel_->SetLabel(cancelled ? "stopped" : "");
                     SetBusy(false);
                 });
                 failed = true;
@@ -601,7 +628,12 @@ void MainFrame::OnExtractPDF(wxCommandEvent&) {
             }
         }
 
-        if (!failed) {
+        if (failed && stopRequested_.load()) {
+            CallAfter([this]() {
+                statusLabel_->SetLabel("stopped");
+                SetBusy(false);
+            });
+        } else if (!failed) {
             std::string savedTo = lastSavedTo;
             CallAfter([this, savedTo]() {
                 if (!savedTo.empty()) {
