@@ -1,0 +1,6 @@
+#1 (marker_llm via llama.cpp) — config-only, no code changes beyond defaults. Biggest single quality jump.
+#2 (OpenCV preprocessing) — ~50 lines in worker.py. Helps every engine.
+#5 (quality-gated cascade) — small auto() rewrite. Multiplies the value of #1.
+#3 (smarter routing signals) — incremental, can land piece by piece.
+#4 (Marker config tuning) — config tweaks once #1 is in.
+#7 (figure-only VLM) — biggest engineering lift; do last.
