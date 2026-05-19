@@ -194,8 +194,12 @@ MainFrame::MainFrame()
     topSizer->Add(nextBtn_, 0, wxALL, 4);
     topPanel->SetSizer(topSizer);
 
-    // Metrics column (5 thin vertical bars side by side, fixed width strip)
-    auto* metricsPanel = new wxPanel(root, wxID_ANY, wxDefaultPosition, FromDIP(wxSize(180, -1)));
+    // Outer splitter: metrics column | (preview/text inner splitter)
+    auto* outerSplitter = new wxSplitterWindow(root, wxID_ANY, wxDefaultPosition, wxDefaultSize,
+                                               wxSP_3D | wxSP_LIVE_UPDATE);
+
+    // Metrics column (5 thin vertical bars side by side)
+    auto* metricsPanel = new wxPanel(outerSplitter, wxID_ANY);
     metricsPanel->SetBackgroundColour(kBg);
     metricsPanel->SetForegroundColour(kFg);
     cpuBar_  = new VBar(metricsPanel, "CPU",  wxColour(80, 170, 220));
@@ -211,8 +215,8 @@ MainFrame::MainFrame()
     metricsSizer->Add(tempBar_, 1, wxEXPAND | wxALL, 2);
     metricsPanel->SetSizer(metricsSizer);
 
-    // Center: split (preview | text)
-    auto* splitter = new wxSplitterWindow(root, wxID_ANY, wxDefaultPosition, wxDefaultSize,
+    // Inner splitter: preview | text
+    auto* splitter = new wxSplitterWindow(outerSplitter, wxID_ANY, wxDefaultPosition, wxDefaultSize,
                                           wxSP_3D | wxSP_LIVE_UPDATE);
     preview_ = new ZoomPanel(splitter);
     textArea_ = new wxTextCtrl(splitter, wxID_ANY, "", wxDefaultPosition, wxDefaultSize,
@@ -223,10 +227,13 @@ MainFrame::MainFrame()
     splitter->SetSashGravity(0.6);
     splitter->SetMinimumPaneSize(FromDIP(100));
 
-    // Middle row: metrics + splitter
+    // Wire up outer split
+    outerSplitter->SplitVertically(metricsPanel, splitter, FromDIP(180));
+    outerSplitter->SetSashGravity(0.0);
+    outerSplitter->SetMinimumPaneSize(FromDIP(60));
+
     auto* middleSizer = new wxBoxSizer(wxHORIZONTAL);
-    middleSizer->Add(metricsPanel, 0, wxEXPAND);
-    middleSizer->Add(splitter, 1, wxEXPAND);
+    middleSizer->Add(outerSplitter, 1, wxEXPAND);
 
     // Status bar text
     statusLabel_ = new wxStaticText(root, wxID_ANY, "");
