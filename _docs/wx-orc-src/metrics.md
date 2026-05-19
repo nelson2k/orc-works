@@ -24,8 +24,8 @@ counters. The collector keeps the previous values; busy fraction is
 (dKernel + dUser - dIdle) / (dKernel + dUser)
 ```
 
-The first call after construction can't compute a delta, so `cpuPct` stays
-0 until the second tick.
+The first call after construction can't compute a delta, so `cpuPct`
+stays 0 until the second tick.
 
 ## RAM
 
@@ -44,11 +44,12 @@ nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu
 
 It reads stdout via a pipe, takes the first line, splits on `,`, trims
 whitespace, and `atof`s the four fields into `gpuPct`, `vramUsedMB`,
-`vramTotal` (used to derive `vramPct`), and `tempC`. `hasGPU` is only set
-if the call returned at least four parsable fields.
+`vramTotal` (used to derive `vramPct`), and `tempC`. `hasGPU` is only
+set if the call returned at least four parsable fields.
 
-If `nvidia-smi` isn't on PATH or returns nothing, `hasGPU` stays false and
-the GPU/VRAM/TEMP bars render as `n/a` (see [main.cpp:OnMetricsTick](main.md)).
+If `nvidia-smi` isn't on PATH or returns nothing, `hasGPU` stays false
+and the GPU/VRAM/TEMP bars render `n/a` (see `OnMetricsTick` in
+[main.md](main.md)).
 
 ## Cost
 

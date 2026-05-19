@@ -8,9 +8,9 @@
 VBar(wxWindow* parent, const wxString& name, const wxColour& fill);
 ```
 
-`name` is the label shown at the bottom (`CPU`, `RAM`, …). `fill` is the
-fill colour for the bar. Min size is 34 × 120 DIP. Backgrounds use
-`wxBG_STYLE_PAINT` and the control double-buffers via
+`name` is the label shown at the bottom (`CPU`, `RAM`, `GPU`, `VRAM`,
+`TEMP`). `fill` is the fill colour for the bar. Min size 34 × 120 DIP.
+Background uses `wxBG_STYLE_PAINT` and the control double-buffers via
 `wxAutoBufferedPaintDC`.
 
 ## Update
@@ -20,8 +20,8 @@ void Set(double frac, const wxString& label);
 ```
 
 `frac` is clamped to `[0, 1]`. `label` is the text shown above the bar
-(e.g. `"42%"`, `"3.2G"`, `"68°"`). Both call `Refresh(false)` to schedule a
-repaint. `OnSize` also forces a repaint so the bar redraws when the
+(e.g. `"42%"`, `"3.2G"`, `"68°"`). Both call `Refresh(false)` to schedule
+a repaint. `OnSize` also forces a repaint so the bar redraws when the
 metrics column is resized.
 
 ## Paint
