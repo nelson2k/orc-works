@@ -178,6 +178,18 @@ std::wstring remoteBaseUrl() {
     return envOr(L"OCR_REMOTE_HTTP_URL", L"http://192.168.10.200:9000");
 }
 
+// nlohmann/json's `value(key, default)` will throw type_error 302 when the
+// key is present but null (the server's status_dict() emits a number of
+// "optional" fields as `null` rather than omitting them). This wrapper is
+// null-safe.
+std::string jstr(const nlohmann::json& j, const char* key, const char* def = "") {
+    if (!j.is_object()) return def;
+    auto it = j.find(key);
+    if (it == j.end() || it->is_null()) return def;
+    if (it->is_string()) return it->get<std::string>();
+    return it->dump();
+}
+
 }  // anonymous namespace
 
 // =============================================================================
@@ -207,6 +219,7 @@ void Worker::setMode(Mode m) {
     shutdown();
     if (mode_ == Mode::Remote) {
         cancelRemote();
+        abortRemoteStream();
         stopRemoteMetricsPolling();
     }
     {
@@ -587,6 +600,141 @@ void Worker::cancelRemote() {
     }
 }
 
+std::string Worker::startRemoteBatch(const std::string& pdfPath,
+                                     const std::string& engine,
+                                     int startPage, int endPage) {
+    nlohmann::json body = {
+        {"pdf_path", pdfPath},
+        {"engine", engine},
+        {"start_page", startPage},
+        {"end_page", endPage},
+    };
+    std::string resp = httpPost(remoteBaseUrl(), L"/v1/extract", body.dump(),
+                                L"application/json", 30000);
+    auto j = nlohmann::json::parse(resp);
+    // The server includes `"error": null` in status_dict() even on success,
+    // so use jstr() to skip null-valued fields.
+    std::string err = jstr(j, "error");
+    if (!err.empty()) {
+        throw std::runtime_error("server rejected extract: " + err);
+    }
+    return jstr(j, "id");
+}
+
+nlohmann::json Worker::currentRemoteJob() {
+    std::string resp = httpGet(remoteBaseUrl(), L"/v1/jobs/current", 5000);
+    if (resp.empty()) return nullptr;
+    try {
+        return nlohmann::json::parse(resp);
+    } catch (const std::exception&) {
+        return nullptr;
+    }
+}
+
+void Worker::cancelRemoteJob(const std::string& jobId) {
+    std::wstring path = L"/v1/jobs/" + std::wstring(jobId.begin(), jobId.end()) + L"/cancel";
+    try { httpPost(remoteBaseUrl(), path, "", L"application/json", 5000); }
+    catch (...) { /* best-effort */ }
+}
+
+void Worker::abortRemoteStream() {
+    std::lock_guard<std::mutex> lk(httpStreamReqMu_);
+    if (httpStreamReq_) {
+        WinHttpCloseHandle((HINTERNET)httpStreamReq_);
+        httpStreamReq_ = nullptr;
+    }
+}
+
+void Worker::streamRemoteJob(const std::string& jobId,
+                             std::function<void(const nlohmann::json&)> eventCb) {
+    std::wstring base = remoteBaseUrl();
+    ParsedUrl u;
+    if (!parseUrl(base, u)) throw std::runtime_error("invalid OCR_REMOTE_HTTP_URL");
+
+    HInternet session(WinHttpOpen(L"orcgui/1.0",
+                                  WINHTTP_ACCESS_TYPE_NO_PROXY,
+                                  WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0));
+    if (!session) throw std::runtime_error(winhttpErr("WinHttpOpen"));
+    // The stream may sit idle between events; keep the receive side very patient.
+    WinHttpSetTimeouts(session.get(), 10000, 10000, 10000, /*recv*/ 60 * 60 * 1000);
+
+    HInternet conn(WinHttpConnect(session.get(), u.host.c_str(), (INTERNET_PORT)u.port, 0));
+    if (!conn) throw std::runtime_error(winhttpErr("WinHttpConnect"));
+
+    std::wstring path = L"/v1/jobs/" + std::wstring(jobId.begin(), jobId.end()) + L"/stream";
+    HInternet hreq(WinHttpOpenRequest(conn.get(), L"GET", path.c_str(),
+                                      nullptr, WINHTTP_NO_REFERER,
+                                      WINHTTP_DEFAULT_ACCEPT_TYPES,
+                                      u.https ? WINHTTP_FLAG_SECURE : 0));
+    if (!hreq) throw std::runtime_error(winhttpErr("WinHttpOpenRequest"));
+
+    if (!WinHttpSendRequest(hreq.get(),
+                            L"Accept: text/event-stream", (DWORD)-1L,
+                            WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) {
+        throw std::runtime_error(winhttpErr("WinHttpSendRequest"));
+    }
+    if (!WinHttpReceiveResponse(hreq.get(), nullptr)) {
+        throw std::runtime_error(winhttpErr("WinHttpReceiveResponse"));
+    }
+
+    {
+        std::lock_guard<std::mutex> lk(httpStreamReqMu_);
+        httpStreamReq_ = hreq.get();
+    }
+    struct ClearStream { Worker* w; ~ClearStream() {
+        std::lock_guard<std::mutex> lk(w->httpStreamReqMu_);
+        w->httpStreamReq_ = nullptr;
+    } } _clr{this};
+
+    std::string accum;
+    char buf[16 * 1024];
+    bool sawDone = false;
+
+    while (!sawDone) {
+        DWORD avail = 0;
+        if (!WinHttpQueryDataAvailable(hreq.get(), &avail)) break;
+        if (avail == 0) break;
+        DWORD got = 0;
+        DWORD toRead = avail > sizeof(buf) ? (DWORD)sizeof(buf) : avail;
+        if (!WinHttpReadData(hreq.get(), buf, toRead, &got) || got == 0) break;
+        accum.append(buf, got);
+
+        while (true) {
+            auto sep = accum.find("\n\n");
+            if (sep == std::string::npos) break;
+            std::string evt = accum.substr(0, sep);
+            accum.erase(0, sep + 2);
+
+            std::string data;
+            size_t p = 0;
+            while (p < evt.size()) {
+                auto eol = evt.find('\n', p);
+                std::string line = evt.substr(p, eol == std::string::npos ? std::string::npos : eol - p);
+                p = (eol == std::string::npos) ? evt.size() : eol + 1;
+                if (!line.empty() && line.back() == '\r') line.pop_back();
+                if (line.rfind("data:", 0) != 0) continue;
+                std::string payloadPart = line.substr(5);
+                if (!payloadPart.empty() && payloadPart[0] == ' ') payloadPart.erase(0, 1);
+                if (!data.empty()) data.push_back('\n');
+                data += payloadPart;
+            }
+            if (data.empty()) continue;
+
+            nlohmann::json msg;
+            try { msg = nlohmann::json::parse(data); }
+            catch (const std::exception&) { continue; }
+
+            auto t = msg.value("type", "");
+            if (t == "metrics") {
+                storeRemoteMetrics(msg);
+                continue;
+            }
+            if (eventCb) eventCb(msg);
+            if (t == "done") { sawDone = true; break; }
+        }
+    }
+}
+
 void Worker::pollRemoteMetricsHttp() {
     if (mode_ != Mode::Remote) return;
     try {
@@ -599,6 +747,7 @@ void Worker::pollRemoteMetricsHttp() {
 }
 
 Worker::~Worker() {
+    abortRemoteStream();
     stopRemoteMetricsPolling();
     shutdown();
 }

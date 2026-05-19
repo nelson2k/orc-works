@@ -10,6 +10,7 @@ import threading
 import subprocess
 import time
 import traceback
+import uuid
 
 
 # Two run modes:
@@ -923,6 +924,112 @@ def _save_page_output(pdf_path, page, text, images):
     return out_dir
 
 
+# ---- Server-side batch (Extract PDF) ---------------------------------------
+#
+# Local mode iterates pages on the C++ side and sends one /v1/ocr request per
+# page. That's fine when the GUI owns the process, but the user wants Remote
+# extracts to keep running when the GUI window closes — and for the GUI to
+# attach back to a job-in-flight on relaunch. So we host the page loop here:
+# a single in-process Job records every event into a list; the SSE handler
+# replays the list and then tails new events. Closing the client just stops
+# the tailing — the loop keeps going.
+
+class _Job:
+    def __init__(self, pdf_path, engine, start_page, end_page):
+        self.id = uuid.uuid4().hex[:12]
+        self.pdf_path = pdf_path
+        self.pdf_name = os.path.basename(pdf_path)
+        self.engine = engine
+        self.start_page = int(start_page)
+        self.end_page = int(end_page)  # exclusive
+        self.current_page = self.start_page
+        self.started_at = time.time()
+        self.events = []                       # append-only history for SSE replay
+        self.events_lock = threading.Lock()
+        self.cancelled = False
+        self.done = False
+        self.error = None
+
+    def emit(self, event):
+        with self.events_lock:
+            self.events.append(event)
+
+    def status_dict(self):
+        return {
+            "id": self.id,
+            "pdf_path": self.pdf_path,
+            "pdf_name": self.pdf_name,
+            "engine": self.engine,
+            "start_page": self.start_page,
+            "end_page": self.end_page,
+            "current_page": self.current_page,
+            "total_pages": self.end_page - self.start_page,
+            "started_at": self.started_at,
+            "events_count": len(self.events),
+            "done": self.done,
+            "cancelled": self.cancelled,
+            "error": self.error,
+        }
+
+
+_current_job = None
+_jobs_lock = threading.Lock()
+
+
+def _job_runner(job):
+    """Server-side Extract PDF loop. Mirrors the C++ side's per-page sequence:
+    render → emit page_image → ocr → emit page_complete. Survives client
+    disconnects."""
+    _send_ctx.target = job.emit
+    _metrics_active.set()
+    try:
+        for page in range(job.start_page, job.end_page):
+            if job.cancelled:
+                break
+            job.current_page = page
+
+            try:
+                img = render(job.pdf_path, page, 120)
+                job.emit({
+                    "type": "page_image",
+                    "page": page,
+                    "pages": img.get("pages", job.end_page),
+                    "png_base64": img.get("png_base64", ""),
+                })
+            except Exception as e:
+                job.emit({"type": "progress", "kind": "render_failed",
+                          "page": page, "error": str(e)})
+
+            if job.cancelled:
+                break
+
+            try:
+                result = ocr(job.pdf_path, page, engine=job.engine)
+            except Exception as e:
+                result = {"type": "error", "page": page,
+                          "message": str(e), "traceback": traceback.format_exc()}
+
+            evt = {
+                "type": "page_complete",
+                "page": page,
+                "engine": result.get("engine") or job.engine,
+                "text": result.get("text") or "",
+                "saved_to": result.get("saved_to") or "",
+            }
+            if result.get("type") == "error":
+                evt["error_message"] = result.get("message") or ""
+            job.emit(evt)
+    except Exception as e:
+        job.error = str(e)
+        job.emit({"type": "error", "message": str(e),
+                  "traceback": traceback.format_exc()})
+    finally:
+        _metrics_active.clear()
+        _send_ctx.target = None
+        job.done = True
+        job.emit({"type": "done", "cancelled": job.cancelled})
+
+
 def _dispatch_cmd(c, cmd):
     """Run one command. Engine functions emit progress via send() which is
     routed by the per-thread _send_ctx target."""
@@ -1043,6 +1150,77 @@ def _build_http_app():
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
+
+    # --- Server-side batch (Extract PDF) endpoints ---
+
+    @app.post("/v1/extract")
+    async def http_extract(req: Request):
+        body = await req.json()
+        with _jobs_lock:
+            global _current_job
+            if _current_job is not None and not _current_job.done:
+                return JSONResponse(
+                    {"error": "another job is active",
+                     "job": _current_job.status_dict()},
+                    status_code=409,
+                )
+            job = _Job(
+                pdf_path=body["pdf_path"],
+                engine=body.get("engine", "auto"),
+                start_page=int(body.get("start_page", 0)),
+                end_page=int(body["end_page"]),
+            )
+            _current_job = job
+        threading.Thread(target=_job_runner, args=(job,),
+                         name=f"job-{job.id}", daemon=True).start()
+        return job.status_dict()
+
+    @app.get("/v1/jobs/current")
+    def http_jobs_current():
+        with _jobs_lock:
+            if _current_job is None:
+                return JSONResponse(None)
+            return _current_job.status_dict()
+
+    @app.get("/v1/jobs/{job_id}/stream")
+    async def http_job_stream(job_id: str, req: Request):
+        with _jobs_lock:
+            job = _current_job if (_current_job and _current_job.id == job_id) else None
+        if job is None:
+            return JSONResponse({"error": "job not found"}, status_code=404)
+
+        async def stream():
+            seen = 0
+            while True:
+                if await req.is_disconnected():
+                    return
+                pending = []
+                with job.events_lock:
+                    while seen < len(job.events):
+                        pending.append(job.events[seen])
+                        seen += 1
+                    job_done = job.done
+                for evt in pending:
+                    yield f"data: {json.dumps(evt)}\n\n"
+                if job_done and not pending:
+                    return
+                if not pending:
+                    # Poll cadence; cheap and avoids cross-thread cv wiring.
+                    await asyncio.sleep(0.2)
+
+        return StreamingResponse(
+            stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    @app.post("/v1/jobs/{job_id}/cancel")
+    def http_job_cancel(job_id: str):
+        with _jobs_lock:
+            if _current_job and _current_job.id == job_id:
+                _current_job.cancelled = True
+                return {"status": "cancel requested"}
+        return JSONResponse({"error": "job not found"}, status_code=404)
 
     @app.get("/v1/metrics")
     def http_metrics():

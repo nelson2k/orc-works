@@ -43,6 +43,27 @@ public:
     // since the last shutdown / mode change.
     bool getRemoteMetrics(MetricsSample& out);
 
+    // --- Server-side Extract PDF batch (Remote mode) ---
+    //
+    // The remote runs the page loop so the work survives the GUI closing.
+    // Extract PDF posts /v1/extract, then streams /v1/jobs/{id}/stream to
+    // see what's happening. On relaunch, currentRemoteJob() reveals any
+    // job-in-flight so the GUI can re-attach via streamRemoteJob().
+    std::string startRemoteBatch(const std::string& pdfPath,
+                                 const std::string& engine,
+                                 int startPage, int endPage);
+    // Blocks until the job emits {"type":"done"} or the connection drops.
+    // metrics events are absorbed into the local cache; everything else
+    // (page_image, page_complete, progress, error, done) is forwarded.
+    void streamRemoteJob(const std::string& jobId,
+                         std::function<void(const nlohmann::json&)> eventCb);
+    void cancelRemoteJob(const std::string& jobId);
+    // Returns the parsed JSON for /v1/jobs/current — `null` if no job.
+    nlohmann::json currentRemoteJob();
+    // Aborts an in-flight SSE stream (closes the underlying handle). Does
+    // NOT cancel the job on the server; pair with cancelRemoteJob() for that.
+    void abortRemoteStream();
+
 private:
     // One blocking GET /v1/metrics → cache. Called from the polling thread,
     // never from the UI thread.
@@ -94,5 +115,9 @@ private:
     void* httpActiveReq_ = nullptr;   // HINTERNET (kept void* to keep
                                       // winhttp.h out of the header)
     std::mutex httpActiveReqMu_;
+    // Separate handle for the long-lived /v1/jobs/{id}/stream connection,
+    // so cancelling the per-page request doesn't kill the batch stream.
+    void* httpStreamReq_ = nullptr;
+    std::mutex httpStreamReqMu_;
 #endif
 };

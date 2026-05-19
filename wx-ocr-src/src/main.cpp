@@ -34,6 +34,16 @@
 
 using nlohmann::json;
 
+// Null-safe string fetch from json. j.value(key, "") throws when the key
+// is present but null (the server emits null for some optional fields).
+static inline std::string jstr(const json& j, const char* key, const char* def = "") {
+    if (!j.is_object()) return def;
+    auto it = j.find(key);
+    if (it == j.end() || it->is_null()) return def;
+    if (it->is_string()) return it->get<std::string>();
+    return it->dump();
+}
+
 namespace {
 
 const wxColour kBg(45, 45, 48);
@@ -120,10 +130,25 @@ private:
     bool ScpUploadSync(const wxString& local, const std::string& remote);
     void OnBackendChange(wxCommandEvent&);
 
+    // Remote-mode batch helpers. The job runs on the 4070 and survives the
+    // GUI closing; AttachToRemoteJob streams its event history (replayed)
+    // and then live events to the GUI. CheckForRemoteJobAndOffer pops up a
+    // prompt when /v1/jobs/current shows something running on launch.
+    void StartRemoteBatch(const std::string& remotePath, const std::string& engine,
+                          int totalPages, const wxString& pdfBaseName);
+    void AttachToRemoteJob(const std::string& jobId, int totalPages,
+                           const std::string& engine, const wxString& pdfName);
+    void CheckForRemoteJobAndOffer();
+
     std::function<void(const json&)> MakeOCRProgress(int page);
 
     Worker worker_;
     MetricsCollector collector_;
+
+    // Active Remote-mode job, if any. Stop button uses this to cancel
+    // on the server in addition to closing the local SSE stream.
+    std::string activeRemoteJobId_;
+    std::mutex activeRemoteJobMu_;
 
     FlatButton* openBtn_ = nullptr;
     FlatButton* prevBtn_ = nullptr;
@@ -607,17 +632,35 @@ void MainFrame::OnBackendChange(wxCommandEvent&) {
     Worker::Mode m = (backendChoice_->GetSelection() == 1)
         ? Worker::Mode::Remote : Worker::Mode::Local;
     worker_.setMode(m);
-    // Force the next worker request to re-upload (path semantics change).
-    std::lock_guard<std::mutex> lk(pathMu_);
-    remoteUploadedFor_.Clear();
-    remotePdfPath_.clear();
+    {
+        std::lock_guard<std::mutex> lk(pathMu_);
+        remoteUploadedFor_.Clear();
+        remotePdfPath_.clear();
+    }
+    if (m == Worker::Mode::Remote) {
+        CheckForRemoteJobAndOffer();
+    }
 }
 
 void MainFrame::OnStop(wxCommandEvent&) {
     if (!busy_) return;
     stopRequested_ = true;
     statusLabel_->SetLabel("stopping...");
-    worker_.cancel();
+    std::string jobId;
+    {
+        std::lock_guard<std::mutex> lk(activeRemoteJobMu_);
+        jobId = activeRemoteJobId_;
+    }
+    if (!jobId.empty()) {
+        // Tell the server-side loop to stop after the current page, then
+        // close our SSE connection. The page in flight finishes naturally.
+        std::thread([this, jobId]() {
+            try { worker_.cancelRemoteJob(jobId); } catch (...) {}
+            worker_.abortRemoteStream();
+        }).detach();
+    } else {
+        worker_.cancel();
+    }
 }
 
 void MainFrame::OnExtractPage(wxCommandEvent&) {
@@ -695,6 +738,27 @@ void MainFrame::OnExtractPDF(wxCommandEvent&) {
     SetBusy(true);
     textArea_->SetValue("");
     statusLabel_->SetLabel(wxString::Format("starting PDF extract (%s): %d pages", engine, total));
+
+    // Remote mode: hand the whole loop to the server so it survives the GUI
+    // closing. The local thread just kicks it off and attaches to the stream.
+    if (worker_.mode() == Worker::Mode::Remote) {
+        wxString baseName = wxFileName(curPath_).GetFullName();
+        std::thread([this, total, engine, baseName]() {
+            std::string path;
+            try {
+                path = PathForWorker();
+            } catch (const std::exception& e) {
+                std::string msg = e.what();
+                CallAfter([this, msg]() {
+                    wxMessageBox(msg, "Error", wxOK | wxICON_ERROR, this);
+                    SetBusy(false);
+                });
+                return;
+            }
+            StartRemoteBatch(path, engine, total, baseName);
+        }).detach();
+        return;
+    }
 
     std::thread([this, total, engine]() {
         std::string path;
@@ -797,6 +861,185 @@ void MainFrame::OnExtractPDF(wxCommandEvent&) {
                 SetBusy(false);
             });
         }
+    }).detach();
+}
+
+// Kick off the server-side batch and attach to its SSE stream. Runs on a
+// background thread; never touches the UI directly (uses CallAfter).
+void MainFrame::StartRemoteBatch(const std::string& remotePath,
+                                 const std::string& engine,
+                                 int totalPages,
+                                 const wxString& pdfBaseName) {
+    std::string jobId;
+    try {
+        jobId = worker_.startRemoteBatch(remotePath, engine, 0, totalPages);
+    } catch (const std::exception& e) {
+        std::string msg = e.what();
+        CallAfter([this, msg]() {
+            wxMessageBox(msg, "Error", wxOK | wxICON_ERROR, this);
+            SetBusy(false);
+        });
+        return;
+    }
+    if (jobId.empty()) {
+        CallAfter([this]() {
+            wxMessageBox("server returned empty job id", "Error",
+                         wxOK | wxICON_ERROR, this);
+            SetBusy(false);
+        });
+        return;
+    }
+    {
+        std::lock_guard<std::mutex> lk(activeRemoteJobMu_);
+        activeRemoteJobId_ = jobId;
+    }
+    AttachToRemoteJob(jobId, totalPages, engine, pdfBaseName);
+}
+
+// Streams events from /v1/jobs/{id}/stream and translates them into GUI
+// updates. Replay events come first (so the GUI lands on the current page
+// quickly) followed by live events until the job emits "done".
+void MainFrame::AttachToRemoteJob(const std::string& jobId, int totalPages,
+                                  const std::string& engine,
+                                  const wxString& pdfName) {
+    std::string lastSavedTo;
+    bool jobError = false;
+
+    auto onEvent = [&, this](const json& evt) {
+        std::string t = jstr(evt, "type");
+        if (t == "page_image") {
+            int page = evt.value("page", 0);
+            std::string b64 = jstr(evt, "png_base64");
+            int pages = evt.value("pages", totalPages);
+            if (!b64.empty()) {
+                std::string bytes = base64Decode(b64);
+                wxImage img = imageFromPngBytes(bytes);
+                if (img.IsOk()) {
+                    CallAfter([this, img, page, pages]() {
+                        preview_->SetImage(img);
+                        curPage_ = page;
+                        curTotal_ = pages;
+                        UpdateLabel();
+                    });
+                }
+            }
+        } else if (t == "progress") {
+            std::string kind = jstr(evt, "kind");
+            std::string name = jstr(evt, "name");
+            int page = evt.value("page", -1);
+            std::string label;
+            if (page >= 0) {
+                label = "page " + std::to_string(page + 1) + " — " + kind;
+                if (!name.empty()) label += ": " + name;
+            } else {
+                label = kind.empty() ? name : (kind + ": " + name);
+            }
+            CallAfter([this, label]() {
+                statusLabel_->SetLabel(wxString::FromUTF8(label));
+            });
+        } else if (t == "page_complete") {
+            int page = evt.value("page", 0);
+            std::string text = jstr(evt, "text");
+            std::string used = jstr(evt, "engine", engine.c_str());
+            std::string savedTo = jstr(evt, "saved_to");
+            if (!savedTo.empty()) lastSavedTo = savedTo;
+            CallAfter([this, text, page, totalPages, used]() {
+                textArea_->SetValue(wxString::FromUTF8(text));
+                statusLabel_->SetLabel(wxString::Format(
+                    "page %d of %d [%s]", page + 1, totalPages,
+                    wxString::FromUTF8(used)));
+            });
+        } else if (t == "error") {
+            std::string msg = jstr(evt, "message", "remote error");
+            jobError = true;
+            CallAfter([this, msg]() {
+                wxMessageBox(wxString::FromUTF8(msg), "Remote error",
+                             wxOK | wxICON_ERROR, this);
+            });
+        }
+        // "done" is the loop terminator, handled by streamRemoteJob returning.
+    };
+
+    try {
+        worker_.streamRemoteJob(jobId, onEvent);
+    } catch (const std::exception& e) {
+        std::string msg = e.what();
+        CallAfter([this, msg]() {
+            statusLabel_->SetLabel(wxString::FromUTF8("stream ended: " + msg));
+        });
+    }
+
+    {
+        std::lock_guard<std::mutex> lk(activeRemoteJobMu_);
+        activeRemoteJobId_.clear();
+    }
+    std::string savedTo = lastSavedTo;
+    bool cancelled = stopRequested_.load();
+    CallAfter([this, savedTo, cancelled, jobError]() {
+        if (cancelled) {
+            statusLabel_->SetLabel("stopped");
+        } else if (jobError) {
+            // popup already shown
+            statusLabel_->SetLabel("error");
+        } else if (!savedTo.empty()) {
+            statusLabel_->SetLabel(wxString::FromUTF8("saved → " + savedTo));
+        } else {
+            statusLabel_->SetLabel("done");
+        }
+        SetBusy(false);
+    });
+}
+
+// Called when the user toggles to Remote (and could be called from OnInit
+// once we default to Remote). Asks the user whether to attach if the
+// 4070 reports an active job.
+void MainFrame::CheckForRemoteJobAndOffer() {
+    std::thread([this]() {
+        json status;
+        try {
+            status = worker_.currentRemoteJob();
+        } catch (const std::exception&) {
+            return;  // server unreachable; no banner
+        }
+        if (status.is_null() || !status.is_object()) return;
+        if (status.value("done", true)) return;
+
+        std::string jobId      = jstr(status, "id");
+        std::string pdfName    = jstr(status, "pdf_name");
+        std::string engine     = jstr(status, "engine");
+        int currentPage        = status.value("current_page", 0);
+        int totalPages         = status.value("total_pages", 0);
+        int endPage            = status.value("end_page", totalPages);
+
+        if (jobId.empty()) return;
+
+        CallAfter([this, jobId, pdfName, engine, currentPage, totalPages, endPage]() {
+            wxString prompt = wxString::Format(
+                "A remote OCR job is running:\n\n"
+                "  PDF:    %s\n"
+                "  Engine: %s\n"
+                "  Page:   %d / %d\n\n"
+                "Attach and watch its progress?",
+                wxString::FromUTF8(pdfName),
+                wxString::FromUTF8(engine),
+                currentPage + 1, endPage);
+            if (wxMessageBox(prompt, "Resume remote job",
+                             wxYES_NO | wxICON_QUESTION, this) != wxYES) {
+                return;
+            }
+            wxString baseName = wxString::FromUTF8(pdfName);
+            SetTitle(wxString::FromUTF8("OCR Works \xE2\x80\x94 ") + baseName + " (attached)");
+            SetBusy(true);
+            curTotal_ = endPage;
+            UpdateLabel();
+            {
+                std::lock_guard<std::mutex> lk(activeRemoteJobMu_);
+                activeRemoteJobId_ = jobId;
+            }
+            std::thread([this, jobId, endPage, engine, baseName]() {
+                AttachToRemoteJob(jobId, endPage, engine, baseName);
+            }).detach();
+        });
     }).detach();
 }
 
