@@ -43,6 +43,7 @@ target_link_libraries(orcgui PRIVATE
     wx::mono
     nlohmann_json::nlohmann_json
     $<$<BOOL:${WIN32}>:dwmapi>
+    $<$<BOOL:${WIN32}>:winhttp>
 )
 
 if (WIN32)

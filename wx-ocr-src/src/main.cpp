@@ -401,6 +401,11 @@ void MainFrame::SetBusy(bool busy) {
 }
 
 void MainFrame::OnMetricsTick(wxTimerEvent&) {
+    // In Remote mode, refresh the cache via /v1/metrics so the bars stay
+    // live between requests (during a request, SSE events also flow in).
+    if (worker_.mode() == Worker::Mode::Remote) {
+        worker_.pollRemoteMetricsHttp();
+    }
     MetricsSample s;
     if (!(worker_.mode() == Worker::Mode::Remote && worker_.getRemoteMetrics(s))) {
         s = collector_.collect();

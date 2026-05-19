@@ -5,10 +5,17 @@ import re
 import gc
 import json
 import base64
+import atexit
 import threading
 import subprocess
 import time
 import traceback
+
+
+# Two run modes:
+#   * stdin/stdout JSON (Local — child of orcgui via Win32 pipes)
+#   * FastAPI / HTTP (Remote — uvicorn on the 4070, talks to orcgui over HTTP)
+HTTP_MODE = "--http" in sys.argv
 
 
 # ---- Protocol stdout isolation ----------------------------------------------
@@ -16,13 +23,19 @@ import traceback
 # straight to FD 1, which would corrupt the JSON protocol we share with the
 # parent. Dup FD 1 into a private FD for our protocol, then redirect FD 1
 # itself (and Python's sys.stdout) at NUL so any leak is swallowed.
-_proto_fd = os.dup(1)
-_proto_stream = os.fdopen(_proto_fd, "w", buffering=1, encoding="utf-8", newline="\n")
+#
+# Skipped in HTTP mode — uvicorn needs stdout for logging, and there's no
+# protocol-on-stdout to protect.
+if not HTTP_MODE:
+    _proto_fd = os.dup(1)
+    _proto_stream = os.fdopen(_proto_fd, "w", buffering=1, encoding="utf-8", newline="\n")
 
-_devnull_w_fd = os.open(os.devnull, os.O_WRONLY)
-os.dup2(_devnull_w_fd, 1)
-os.close(_devnull_w_fd)
-sys.stdout = open(os.devnull, "w", buffering=1, encoding="utf-8")
+    _devnull_w_fd = os.open(os.devnull, os.O_WRONLY)
+    os.dup2(_devnull_w_fd, 1)
+    os.close(_devnull_w_fd)
+    sys.stdout = open(os.devnull, "w", buffering=1, encoding="utf-8")
+else:
+    _proto_stream = None
 
 
 REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
@@ -33,8 +46,18 @@ _FS_UNSAFE = re.compile(r'[<>:"/\\|?*]')
 
 _send_lock = threading.Lock()
 
+# In HTTP mode this is set per-request by the SSE endpoint, so progress and
+# metrics events flow into the request's stream instead of stdout.
+_send_ctx = threading.local()
+
 
 def send(msg):
+    target = getattr(_send_ctx, "target", None)
+    if target is not None:
+        target(msg)
+        return
+    if _proto_stream is None:
+        return  # HTTP mode, no active request — drop
     line = json.dumps(msg) + "\n"
     with _send_lock:
         _proto_stream.write(line)
@@ -181,6 +204,7 @@ import pymupdf  # noqa: E402
 # at a time on a low-VRAM card; the loaders defensively unload the other.
 _marker_models = None
 _vlm = None
+_vlm_server_proc = None  # llama-server subprocess in HTTP mode
 
 
 def _empty_cuda_cache():
@@ -204,6 +228,11 @@ def _unload_marker():
 
 def _unload_vlm():
     global _vlm
+    # HTTP backend: kill the llama-server subprocess.
+    if _vlm_server_proc is not None or _vlm_http_ping():
+        _unload_vlm_http()
+        return
+    # In-process backend: drop refs and let CUDA reclaim.
     if _vlm is None:
         return
     send_stage("unloading_vlm")
@@ -435,12 +464,28 @@ def ocr_marker(path, page, use_llm=False):
     }
 
 
-# ---------- Engine: VLM (Qwen2.5-VL-3B-Instruct-AWQ) ----------
+# ---------- Engine: VLM ----------
+#
+# Two backends, picked at runtime:
+#   * llama-server (HTTP, OpenAI-compatible) — used when llama-server binary
+#     and the Qwen2.5-VL-7B GGUFs are present on disk. Faster + bigger model.
+#   * in-process transformers + Qwen2.5-VL-3B-AWQ — fallback when GGUFs
+#     aren't there (e.g. running Local mode on the Windows laptop).
 
 VLM_PATH = os.environ.get(
     "OCR_VLM_PATH",
     os.path.join(REPOS_FOLDER, "Qwen2.5-VL-3B-Instruct-AWQ"),
 )
+
+VLM_GGUF_DIR = os.environ.get(
+    "OCR_VLM_GGUF_DIR",
+    os.path.join(REPOS_FOLDER, "Qwen2.5-VL-7B-Instruct-GGUF"),
+)
+VLM_GGUF_MODEL = os.path.join(VLM_GGUF_DIR, "Qwen2.5-VL-7B-Instruct-Q4_K_M.gguf")
+VLM_GGUF_MMPROJ = os.path.join(VLM_GGUF_DIR, "mmproj-Qwen2.5-VL-7B-Instruct-f16.gguf")
+LLAMA_SERVER_BIN = os.environ.get("OCR_LLAMA_SERVER_BIN", "/usr/local/bin/llama-server")
+VLM_HTTP_URL = os.environ.get("OCR_VLM_HTTP_URL", "http://127.0.0.1:8080")
+VLM_HTTP_PORT = int(os.environ.get("OCR_VLM_HTTP_PORT", "8080"))
 
 VLM_PROMPT = (
     "Transcribe this document page exactly as it appears, "
@@ -450,7 +495,146 @@ VLM_PROMPT = (
 )
 
 
-def _ensure_vlm():
+def _vlm_use_http():
+    """Pick the llama-server backend only if its binary AND GGUFs are present."""
+    return (
+        os.path.isfile(LLAMA_SERVER_BIN)
+        and os.path.isfile(VLM_GGUF_MODEL)
+        and os.path.isfile(VLM_GGUF_MMPROJ)
+    )
+
+
+def _vlm_http_ping():
+    import urllib.request
+    try:
+        with urllib.request.urlopen(
+            VLM_HTTP_URL.rstrip("/") + "/health", timeout=2
+        ) as r:
+            return r.status == 200
+    except Exception:
+        return False
+
+
+def _ensure_vlm_http():
+    """Start llama-server as a subprocess if it's not already serving."""
+    global _vlm_server_proc
+
+    if _vlm_http_ping():
+        return  # already up (possibly from a previous worker run)
+
+    _unload_marker()
+    send_stage("loading_vlm_server")
+
+    import subprocess
+    # Best-effort: clean up any orphaned llama-server from a prior crash.
+    subprocess.run(["pkill", "llama-server"],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(0.5)
+
+    _vlm_server_proc = subprocess.Popen(
+        [
+            LLAMA_SERVER_BIN,
+            "-m", VLM_GGUF_MODEL,
+            "--mmproj", VLM_GGUF_MMPROJ,
+            "-ngl", "99",
+            "-c", "8192",
+            "--host", "127.0.0.1",
+            "--port", str(VLM_HTTP_PORT),
+        ],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        # New session: orphan-proof; signals from worker.py won't accidentally
+        # tear down the server, and atexit handles the clean path.
+        start_new_session=True,
+    )
+
+    deadline = time.time() + 90.0
+    while time.time() < deadline:
+        if _vlm_http_ping():
+            return
+        if _vlm_server_proc.poll() is not None:
+            raise RuntimeError(
+                f"llama-server exited prematurely (code={_vlm_server_proc.returncode})"
+            )
+        time.sleep(1.0)
+    raise RuntimeError("llama-server did not become ready within 90s")
+
+
+def _unload_vlm_http():
+    global _vlm_server_proc
+    if _vlm_server_proc is None and not _vlm_http_ping():
+        return
+    send_stage("unloading_vlm")
+    if _vlm_server_proc is not None:
+        try:
+            _vlm_server_proc.terminate()
+            _vlm_server_proc.wait(timeout=5)
+        except Exception:
+            try:
+                _vlm_server_proc.kill()
+                _vlm_server_proc.wait(timeout=5)
+            except Exception:
+                pass
+        _vlm_server_proc = None
+    else:
+        # Server was started by some other process — try a best-effort kill.
+        import subprocess
+        subprocess.run(["pkill", "llama-server"],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def _ocr_vlm_http(path, page):
+    import urllib.request
+    import urllib.error
+
+    doc = pymupdf.open(path)
+    try:
+        if page < 0 or page >= len(doc):
+            return {"type": "error", "message": f"page {page} out of range"}
+        send_stage("rasterize")
+        png = doc[page].get_pixmap(dpi=200).tobytes("png")
+    finally:
+        doc.close()
+
+    _ensure_vlm_http()
+
+    b64 = base64.b64encode(png).decode("ascii")
+    body = {
+        "model": "qwen2.5-vl",
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "image_url",
+                 "image_url": {"url": f"data:image/png;base64,{b64}"}},
+                {"type": "text", "text": VLM_PROMPT},
+            ],
+        }],
+        "max_tokens": 4096,
+        "temperature": 0.0,
+    }
+    req = urllib.request.Request(
+        VLM_HTTP_URL.rstrip("/") + "/v1/chat/completions",
+        data=json.dumps(body).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    send_stage("vlm_inference")
+    with urllib.request.urlopen(req, timeout=600) as r:
+        resp = json.loads(r.read())
+    md = resp["choices"][0]["message"]["content"]
+
+    send_stage("saving")
+    out_dir = _save_page_output(path, page, md, {})
+    return {
+        "type": "text",
+        "engine": "vlm",
+        "page": page,
+        "text": md,
+        "saved_to": out_dir,
+    }
+
+
+def _ensure_vlm_transformers():
     global _vlm
     if _vlm is not None:
         return _vlm
@@ -499,7 +683,7 @@ def _ensure_vlm():
     return _vlm
 
 
-def ocr_vlm(path, page):
+def _ocr_vlm_transformers(path, page):
     from PIL import Image
 
     doc = pymupdf.open(path)
@@ -512,7 +696,7 @@ def ocr_vlm(path, page):
     finally:
         doc.close()
 
-    vlm = _ensure_vlm()
+    vlm = _ensure_vlm_transformers()
     model = vlm["model"]
     processor = vlm["processor"]
     torch = vlm["torch"]
@@ -554,6 +738,24 @@ def ocr_vlm(path, page):
         "text": md,
         "saved_to": out_dir,
     }
+
+
+def _ensure_vlm():
+    if _vlm_use_http():
+        return _ensure_vlm_http()
+    return _ensure_vlm_transformers()
+
+
+# Make sure llama-server doesn't linger if the worker exits cleanly (quit
+# cmd, EOF on stdin). A SIGKILL bypass would leave it behind — the next
+# _ensure_vlm_http() pkill catches that case.
+atexit.register(_unload_vlm_http)
+
+
+def ocr_vlm(path, page):
+    if _vlm_use_http():
+        return _ocr_vlm_http(path, page)
+    return _ocr_vlm_transformers(path, page)
 
 
 # ---------- Engine: MinerU pipeline (layout + OCR + formula + table) ----------
@@ -721,7 +923,26 @@ def _save_page_output(pdf_path, page, text, images):
     return out_dir
 
 
-def main():
+def _dispatch_cmd(c, cmd):
+    """Run one command. Engine functions emit progress via send() which is
+    routed by the per-thread _send_ctx target."""
+    if c == "render":
+        return render(
+            cmd["path"],
+            int(cmd.get("page", 0)),
+            int(cmd.get("dpi", 120)),
+        )
+    if c == "ocr":
+        return ocr(
+            cmd["path"],
+            int(cmd.get("page", 0)),
+            engine=cmd.get("engine", "auto"),
+            use_llm=bool(cmd.get("use_llm", False)),
+        )
+    return {"type": "error", "message": f"unknown command: {c}"}
+
+
+def main_stdio():
     _start_metrics_thread_once()
     for line in sys.stdin:
         line = line.strip()
@@ -739,21 +960,7 @@ def main():
 
         _metrics_active.set()
         try:
-            if c == "render":
-                result = render(
-                    cmd["path"],
-                    int(cmd.get("page", 0)),
-                    int(cmd.get("dpi", 120)),
-                )
-            elif c == "ocr":
-                result = ocr(
-                    cmd["path"],
-                    int(cmd.get("page", 0)),
-                    engine=cmd.get("engine", "auto"),
-                    use_llm=bool(cmd.get("use_llm", False)),
-                )
-            else:
-                result = {"type": "error", "message": f"unknown command: {c}"}
+            result = _dispatch_cmd(c, cmd)
         except Exception as e:
             result = {
                 "type": "error",
@@ -763,6 +970,119 @@ def main():
         finally:
             _metrics_active.clear()
         send(result)
+
+
+# ---- HTTP / FastAPI entry point --------------------------------------------
+#
+# Same engine functions, different transport. Started with `--http` and
+# `uvicorn` so the model state persists between GUI sessions: close orcgui,
+# reopen it, models are still warm. Cancellation rides on the HTTP request
+# being aborted client-side — the SSE generator notices and stops draining.
+
+def _build_http_app():
+    import asyncio
+    from fastapi import FastAPI, Request
+    from fastapi.responses import StreamingResponse, JSONResponse
+
+    app = FastAPI(title="ocr-worker")
+    _start_metrics_thread_once()
+
+    @app.get("/v1/health")
+    def health():
+        return {"status": "ok"}
+
+    @app.post("/v1/render")
+    async def http_render(req: Request):
+        body = await req.json()
+        return JSONResponse(_dispatch_cmd("render", body))
+
+    @app.post("/v1/ocr")
+    async def http_ocr(req: Request):
+        body = await req.json()
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+        SENTINEL = object()
+
+        def push(msg):
+            loop.call_soon_threadsafe(queue.put_nowait, msg)
+
+        def runner():
+            _send_ctx.target = push
+            _metrics_active.set()
+            try:
+                result = _dispatch_cmd("ocr", body)
+            except Exception as e:
+                result = {
+                    "type": "error",
+                    "message": str(e),
+                    "traceback": traceback.format_exc(),
+                }
+            finally:
+                _metrics_active.clear()
+                _send_ctx.target = None
+            loop.call_soon_threadsafe(queue.put_nowait, result)
+            loop.call_soon_threadsafe(queue.put_nowait, SENTINEL)
+
+        async def stream():
+            task = asyncio.create_task(asyncio.to_thread(runner))
+            try:
+                while True:
+                    msg = await queue.get()
+                    if msg is SENTINEL:
+                        break
+                    yield f"data: {json.dumps(msg)}\n\n"
+            finally:
+                # If the client disconnected mid-stream, let the worker thread
+                # finish naturally — its events drain into a dead queue. We
+                # can't kill the engine cleanly without engine cooperation.
+                if not task.done():
+                    await task
+
+        return StreamingResponse(
+            stream(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    @app.get("/v1/metrics")
+    def http_metrics():
+        # On-demand snapshot for the idle case. Active-request metrics
+        # stream as SSE events inside /v1/ocr.
+        import psutil
+        cpu = psutil.cpu_percent(interval=None)
+        vm = psutil.virtual_memory()
+        out = {
+            "cpu_pct": cpu,
+            "ram_pct": vm.percent,
+            "ram_used_gb": (vm.total - vm.available) / (1024.0 ** 3),
+            "has_gpu": False,
+        }
+        gpu = _gpu_metrics_via_nvidia_smi()
+        if gpu is not None:
+            gpu_pct, vram_used_mb, vram_total_mb, temp_c = gpu
+            out["has_gpu"] = True
+            out["gpu_pct"] = gpu_pct
+            out["vram_used_mb"] = vram_used_mb
+            out["vram_total_mb"] = vram_total_mb
+            out["vram_pct"] = (100.0 * vram_used_mb / vram_total_mb) if vram_total_mb > 0 else 0.0
+            out["temp_c"] = temp_c
+        return out
+
+    return app
+
+
+def main_http():
+    import uvicorn
+    host = os.environ.get("OCR_HTTP_HOST", "0.0.0.0")
+    port = int(os.environ.get("OCR_HTTP_PORT", "9000"))
+    uvicorn.run(_build_http_app(), host=host, port=port, log_level="info")
+
+
+def main():
+    if HTTP_MODE:
+        main_http()
+    else:
+        main_stdio()
 
 
 if __name__ == "__main__":

@@ -5,3 +5,8 @@
 # Windows).
 
 mineru[pipeline]
+
+# HTTP backend (Remote mode). uvicorn[standard] pulls in httptools + uvloop
+# for performance; FastAPI gives us routing + Pydantic for free.
+fastapi
+uvicorn[standard]
