@@ -21,6 +21,25 @@ ZoomPanel::ZoomPanel(wxWindow* parent)
     Bind(wxEVT_LEFT_DOWN, &ZoomPanel::OnMouseDown, this);
     Bind(wxEVT_LEFT_UP, &ZoomPanel::OnMouseUp, this);
     Bind(wxEVT_MOTION, &ZoomPanel::OnMouseMotion, this);
+    Bind(wxEVT_ENTER_WINDOW, &ZoomPanel::OnEnter, this);
+}
+
+void ZoomPanel::SyncSpaceFromKeyboard() {
+    bool actual = wxGetKeyState(WXK_SPACE);
+    if (actual != spaceDown_) {
+        spaceDown_ = actual;
+        if (!actual && dragging_) {
+            dragging_ = false;
+            if (HasCapture()) ReleaseMouse();
+        }
+        UpdateCursor();
+    }
+}
+
+void ZoomPanel::UpdateCursor() {
+    if (dragging_)        SetCursor(wxCursor(wxCURSOR_SIZING));
+    else if (spaceDown_)  SetCursor(wxCursor(wxCURSOR_HAND));
+    else                  SetCursor(wxNullCursor);
 }
 
 void ZoomPanel::SetImage(const wxImage& img) {
@@ -34,9 +53,13 @@ void ZoomPanel::SetImage(const wxImage& img) {
 }
 
 void ZoomPanel::SetSpaceDown(bool v) {
+    if (spaceDown_ == v) return;
     spaceDown_ = v;
-    if (v) SetCursor(wxCursor(wxCURSOR_HAND));
-    else   SetCursor(wxNullCursor);
+    if (!v && dragging_) {
+        dragging_ = false;
+        if (HasCapture()) ReleaseMouse();
+    }
+    UpdateCursor();
 }
 
 void ZoomPanel::RebuildBitmap() {
@@ -86,10 +109,12 @@ void ZoomPanel::OnMouseWheel(wxMouseEvent& evt) {
 }
 
 void ZoomPanel::OnMouseDown(wxMouseEvent& evt) {
+    SyncSpaceFromKeyboard();
     if (spaceDown_) {
         dragging_ = true;
         dragLast_ = evt.GetPosition();
         CaptureMouse();
+        UpdateCursor();
     }
     evt.Skip();
 }
@@ -98,11 +123,13 @@ void ZoomPanel::OnMouseUp(wxMouseEvent& evt) {
     if (dragging_) {
         dragging_ = false;
         if (HasCapture()) ReleaseMouse();
+        UpdateCursor();
     }
     evt.Skip();
 }
 
 void ZoomPanel::OnMouseMotion(wxMouseEvent& evt) {
+    SyncSpaceFromKeyboard();
     if (dragging_ && spaceDown_) {
         wxPoint p = evt.GetPosition();
         wxPoint d = p - dragLast_;
@@ -114,5 +141,10 @@ void ZoomPanel::OnMouseMotion(wxMouseEvent& evt) {
         int sy = GetScrollPos(wxVERTICAL);
         Scroll(sx - d.x / (xu ? xu : 1), sy - d.y / (yu ? yu : 1));
     }
+    evt.Skip();
+}
+
+void ZoomPanel::OnEnter(wxMouseEvent& evt) {
+    SyncSpaceFromKeyboard();
     evt.Skip();
 }

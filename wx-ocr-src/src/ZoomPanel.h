@@ -19,9 +19,12 @@ private:
     void OnMouseDown(wxMouseEvent&);
     void OnMouseUp(wxMouseEvent&);
     void OnMouseMotion(wxMouseEvent&);
+    void OnEnter(wxMouseEvent&);
 
     void UpdateVirtualSize();
     void RebuildBitmap();
+    void SyncSpaceFromKeyboard();
+    void UpdateCursor();
 
     wxImage image_;
     wxBitmap bitmap_;
