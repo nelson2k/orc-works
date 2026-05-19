@@ -158,6 +158,27 @@ MainFrame::MainFrame()
     SetIcon(wxICON(orcgui));
 #endif
 
+    {
+        wxFileName iconFn(wxStandardPaths::Get().GetExecutablePath());
+        iconFn.SetFullName("");
+        iconFn.AppendDir("icons");
+        iconFn.SetFullName("OCR_toolbar_icon.svg");
+        wxString iconPath = iconFn.GetFullPath();
+        if (wxFileExists(iconPath)) {
+            wxIconBundle bundle;
+            for (int sz : {16, 24, 32, 48, 64, 128, 256}) {
+                wxBitmapBundle bb = wxBitmapBundle::FromSVGFile(iconPath, wxSize(sz, sz));
+                wxBitmap bmp = bb.GetBitmap(wxSize(sz, sz));
+                if (bmp.IsOk()) {
+                    wxIcon icon;
+                    icon.CopyFromBitmap(bmp);
+                    bundle.AddIcon(icon);
+                }
+            }
+            if (!bundle.IsEmpty()) SetIcons(bundle);
+        }
+    }
+
     SetBackgroundColour(kBg);
     SetForegroundColour(kFg);
 
@@ -265,6 +286,15 @@ MainFrame::MainFrame()
         int k = e.GetKeyCode();
         if (k == WXK_CONTROL) { ctrlDown_ = true; preview_->SetCtrlDown(true); }
         if (k == WXK_SPACE)   { spaceDown_ = true; preview_->SetSpaceDown(true); }
+        if ((k == WXK_LEFT || k == WXK_RIGHT) && !busy_ && curTotal_ > 0
+            && wxWindow::FindFocus() != textArea_) {
+            if (k == WXK_LEFT && curPage_ > 0) {
+                RenderPage(curPage_ - 1);
+            } else if (k == WXK_RIGHT && curPage_ < curTotal_ - 1) {
+                RenderPage(curPage_ + 1);
+            }
+            return;
+        }
         e.Skip();
     });
     Bind(wxEVT_KEY_UP, [this](wxKeyEvent& e) {
