@@ -3,8 +3,8 @@
 #include <wx/dcbuffer.h>
 
 VBar::VBar(wxWindow* parent, const wxString& name, const wxColour& fill)
-    : wxPanel(parent, wxID_ANY, wxDefaultPosition, wxSize(34, 120)),
-      name_(name), fillCol_(fill) {
+    : wxPanel(parent), name_(name), fillCol_(fill) {
+    SetMinSize(FromDIP(wxSize(34, 120)));
     SetBackgroundStyle(wxBG_STYLE_PAINT);
     Bind(wxEVT_PAINT, &VBar::OnPaint, this);
     Bind(wxEVT_SIZE, &VBar::OnSize, this);

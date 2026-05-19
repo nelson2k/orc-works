@@ -3,6 +3,19 @@
 #include <wx/filedlg.h>
 #include <wx/mstream.h>
 #include <wx/timer.h>
+#include <wx/bmpbndl.h>
+#include <wx/stdpaths.h>
+#include <wx/filename.h>
+
+#ifdef __WXMSW__
+#include <dwmapi.h>
+#ifndef DWMWA_CAPTION_COLOR
+#define DWMWA_CAPTION_COLOR 35
+#endif
+#ifndef DWMWA_BORDER_COLOR
+#define DWMWA_BORDER_COLOR 34
+#endif
+#endif
 
 #include <atomic>
 #include <memory>
@@ -12,6 +25,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "FlatButton.h"
 #include "Metrics.h"
 #include "VBar.h"
 #include "Worker.h"
@@ -23,6 +37,14 @@ namespace {
 
 const wxColour kBg(45, 45, 48);
 const wxColour kFg(220, 220, 220);
+
+wxBitmapBundle loadIcon(const wxString& name) {
+    wxFileName fn(wxStandardPaths::Get().GetExecutablePath());
+    fn.SetFullName("");
+    fn.AppendDir("icons");
+    fn.SetFullName(name);
+    return wxBitmapBundle::FromSVGFile(fn.GetFullPath(), wxSize(20, 20));
+}
 
 const std::vector<std::pair<wxString, std::string>> kEngines = {
     {"Auto",             "auto"},
@@ -97,11 +119,11 @@ private:
     Worker worker_;
     MetricsCollector collector_;
 
-    wxButton* openBtn_ = nullptr;
-    wxButton* prevBtn_ = nullptr;
-    wxButton* nextBtn_ = nullptr;
-    wxButton* extractPageBtn_ = nullptr;
-    wxButton* extractPDFBtn_ = nullptr;
+    FlatButton* openBtn_ = nullptr;
+    FlatButton* prevBtn_ = nullptr;
+    FlatButton* nextBtn_ = nullptr;
+    FlatButton* extractPageBtn_ = nullptr;
+    FlatButton* extractPDFBtn_ = nullptr;
     wxChoice* engineChoice_ = nullptr;
     wxStaticText* pageLabel_ = nullptr;
     wxStaticText* statusLabel_ = nullptr;
@@ -125,8 +147,10 @@ private:
 };
 
 MainFrame::MainFrame()
-    : wxFrame(nullptr, wxID_ANY, "OCR Works", wxDefaultPosition, wxSize(1200, 800)),
+    : wxFrame(nullptr, wxID_ANY, "OCR Works", wxDefaultPosition, wxDefaultSize),
       metricsTimer_(this) {
+
+    SetClientSize(FromDIP(wxSize(1200, 800)));
 
     wxInitAllImageHandlers();
 
@@ -145,19 +169,19 @@ MainFrame::MainFrame()
     auto* topPanel = new wxPanel(root);
     topPanel->SetBackgroundColour(kBg);
     topPanel->SetForegroundColour(kFg);
-    openBtn_ = new wxButton(topPanel, wxID_ANY, "Open PDF");
+    openBtn_ = new FlatButton(topPanel, "Open PDF", loadIcon("folder-open.svg"));
 
     wxArrayString engineNames;
     for (auto& e : kEngines) engineNames.Add(e.first);
     engineChoice_ = new wxChoice(topPanel, wxID_ANY, wxDefaultPosition, wxDefaultSize, engineNames);
     engineChoice_->SetSelection(0);
 
-    extractPageBtn_ = new wxButton(topPanel, wxID_ANY, "Extract Page");
-    extractPDFBtn_ = new wxButton(topPanel, wxID_ANY, "Extract PDF");
+    extractPageBtn_ = new FlatButton(topPanel, "Extract Page", loadIcon("file-text.svg"));
+    extractPDFBtn_ = new FlatButton(topPanel, "Extract PDF", loadIcon("files.svg"));
 
-    prevBtn_ = new wxButton(topPanel, wxID_ANY, "Prev");
+    prevBtn_ = new FlatButton(topPanel, "Prev", loadIcon("chevron-left.svg"));
     pageLabel_ = new wxStaticText(topPanel, wxID_ANY, "");
-    nextBtn_ = new wxButton(topPanel, wxID_ANY, "Next");
+    nextBtn_ = new FlatButton(topPanel, "Next", loadIcon("chevron-right.svg"));
 
     auto* topSizer = new wxBoxSizer(wxHORIZONTAL);
     topSizer->Add(openBtn_, 0, wxALL, 4);
@@ -171,7 +195,7 @@ MainFrame::MainFrame()
     topPanel->SetSizer(topSizer);
 
     // Metrics column (5 thin vertical bars side by side, fixed width strip)
-    auto* metricsPanel = new wxPanel(root, wxID_ANY, wxDefaultPosition, wxSize(180, -1));
+    auto* metricsPanel = new wxPanel(root, wxID_ANY, wxDefaultPosition, FromDIP(wxSize(180, -1)));
     metricsPanel->SetBackgroundColour(kBg);
     metricsPanel->SetForegroundColour(kFg);
     cpuBar_  = new VBar(metricsPanel, "CPU",  wxColour(80, 170, 220));
@@ -197,7 +221,7 @@ MainFrame::MainFrame()
     textArea_->SetForegroundColour(kFg);
     splitter->SplitVertically(preview_, textArea_);
     splitter->SetSashGravity(0.6);
-    splitter->SetMinimumPaneSize(100);
+    splitter->SetMinimumPaneSize(FromDIP(100));
 
     // Middle row: metrics + splitter
     auto* middleSizer = new wxBoxSizer(wxHORIZONTAL);
@@ -244,6 +268,15 @@ MainFrame::MainFrame()
     });
     Bind(wxEVT_TIMER, &MainFrame::OnMetricsTick, this);
     Bind(wxEVT_CLOSE_WINDOW, &MainFrame::OnClose, this);
+
+#ifdef __WXMSW__
+    {
+        HWND hwnd = (HWND)GetHWND();
+        COLORREF black = RGB(0, 0, 0);
+        DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR, &black, sizeof(black));
+        DwmSetWindowAttribute(hwnd, DWMWA_BORDER_COLOR, &black, sizeof(black));
+    }
+#endif
 
     collector_.collect();
     metricsTimer_.Start(1000);
@@ -307,7 +340,7 @@ void MainFrame::OnMetricsTick(wxTimerEvent&) {
     if (s.hasGPU) {
         gpuBar_->Set(s.gpuPct / 100.0, wxString::Format("%.0f%%", s.gpuPct));
         vramBar_->Set(s.vramPct / 100.0, wxString::Format("%.1fG", s.vramUsedMB / 1024.0));
-        tempBar_->Set(s.tempC / 100.0, wxString::Format("%.0f°", s.tempC));
+        tempBar_->Set(s.tempC / 100.0, wxString::Format(L"%.0f°", s.tempC));
     } else {
         gpuBar_->Set(0, "n/a");
         vramBar_->Set(0, "n/a");

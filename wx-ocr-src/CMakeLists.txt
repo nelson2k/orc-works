@@ -26,6 +26,7 @@ set(SOURCES
     src/Metrics.cpp
     src/VBar.cpp
     src/ZoomPanel.cpp
+    src/FlatButton.cpp
 )
 
 if (WIN32)
@@ -41,6 +42,7 @@ add_executable(orcgui WIN32 ${SOURCES})
 target_link_libraries(orcgui PRIVATE
     wx::mono
     nlohmann_json::nlohmann_json
+    $<$<BOOL:${WIN32}>:dwmapi>
 )
 
 if (WIN32)
@@ -49,3 +51,9 @@ if (WIN32)
         NOMINMAX WIN32_LEAN_AND_MEAN
     )
 endif()
+
+add_custom_command(TARGET orcgui POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_SOURCE_DIR}/icons"
+        "$<TARGET_FILE_DIR:orcgui>/icons"
+    VERBATIM)
