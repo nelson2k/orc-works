@@ -502,7 +502,7 @@ std::function<void(const json&)> MainFrame::MakeOCRProgress(int page) {
         } else {
             return;
         }
-        CallAfter([this, text]() { statusLabel_->SetLabel(text); });
+        CallAfter([this, text]() { statusLabel_->SetLabel(wxString::FromUTF8(text)); });
     };
 }
 
