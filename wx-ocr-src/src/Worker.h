@@ -11,6 +11,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include "Metrics.h"
+
 class Worker {
 public:
     using ProgressCallback = std::function<void(const nlohmann::json&)>;
@@ -32,15 +34,26 @@ public:
     void setMode(Mode m);
     Mode mode() const { return mode_; }
 
+    // The remote worker streams type:"metrics" events on the same JSON pipe
+    // during requests; the parent stashes the last one here for the metrics
+    // timer to read in Remote mode. Returns false when no sample has arrived
+    // since the last shutdown / mode change.
+    bool getRemoteMetrics(MetricsSample& out);
+
 private:
     bool ensureStarted();
     bool writeLine(const std::string& line);
     bool readLine(std::string& out);
     std::wstring buildCommandLine() const;
+    void storeRemoteMetrics(const nlohmann::json& m);
 
     std::mutex mu_;
     bool started_ = false;
     Mode mode_ = Mode::Local;
+
+    std::mutex metricsMu_;
+    MetricsSample lastRemoteMetrics_;
+    bool haveRemoteMetrics_ = false;
 
 #ifdef _WIN32
     HANDLE childIn_ = INVALID_HANDLE_VALUE;

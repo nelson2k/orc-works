@@ -6,6 +6,8 @@ import gc
 import json
 import base64
 import threading
+import subprocess
+import time
 import traceback
 
 
@@ -41,6 +43,91 @@ def send(msg):
 
 def send_stage(name):
     send({"type": "progress", "kind": "stage", "name": name})
+
+
+# ---- Remote metrics streaming ----------------------------------------------
+# A daemon thread emits type:"metrics" events every second while a request is
+# being processed. The parent GUI prefers these over its locally-collected
+# samples when running in Remote mode, so the bars show the 4070 instead of
+# the user's Windows laptop. Between requests the thread sleeps — pausing
+# emission avoids back-pressuring the pipe when the GUI isn't reading.
+
+_metrics_active = threading.Event()
+_metrics_thread_started = False
+
+
+def _gpu_metrics_via_nvidia_smi():
+    try:
+        out = subprocess.check_output(
+            [
+                "nvidia-smi",
+                "--query-gpu=utilization.gpu,memory.used,memory.total,temperature.gpu",
+                "--format=csv,noheader,nounits",
+            ],
+            stderr=subprocess.DEVNULL,
+            timeout=2,
+        ).decode("ascii", errors="ignore").strip()
+    except Exception:
+        return None
+    line = out.splitlines()[0] if out else ""
+    parts = [p.strip() for p in line.split(",")]
+    if len(parts) < 4:
+        return None
+    try:
+        return (float(parts[0]), float(parts[1]), float(parts[2]), float(parts[3]))
+    except ValueError:
+        return None
+
+
+def _emit_metrics_sample():
+    import psutil
+    cpu = psutil.cpu_percent(interval=None)
+    vm = psutil.virtual_memory()
+    msg = {
+        "type": "metrics",
+        "cpu_pct": cpu,
+        "ram_pct": vm.percent,
+        "ram_used_gb": (vm.total - vm.available) / (1024.0 ** 3),
+        "has_gpu": False,
+    }
+    gpu = _gpu_metrics_via_nvidia_smi()
+    if gpu is not None:
+        gpu_pct, vram_used_mb, vram_total_mb, temp_c = gpu
+        msg["has_gpu"] = True
+        msg["gpu_pct"] = gpu_pct
+        msg["vram_used_mb"] = vram_used_mb
+        msg["vram_total_mb"] = vram_total_mb
+        msg["vram_pct"] = (100.0 * vram_used_mb / vram_total_mb) if vram_total_mb > 0 else 0.0
+        msg["temp_c"] = temp_c
+    send(msg)
+
+
+def _metrics_loop():
+    try:
+        import psutil
+        psutil.cpu_percent(interval=None)  # prime the delta counter
+    except Exception:
+        return
+    while True:
+        # Block until a request is in flight; sleeping here means no events
+        # leak into the pipe while the GUI is idle.
+        _metrics_active.wait()
+        try:
+            _emit_metrics_sample()
+        except Exception:
+            pass
+        # 1 Hz cadence. Re-check _metrics_active at the top of the loop so a
+        # request that completed mid-sleep doesn't get a trailing sample.
+        time.sleep(1.0)
+
+
+def _start_metrics_thread_once():
+    global _metrics_thread_started
+    if _metrics_thread_started:
+        return
+    _metrics_thread_started = True
+    t = threading.Thread(target=_metrics_loop, name="metrics", daemon=True)
+    t.start()
 
 
 # Patch tqdm BEFORE marker/surya import it, so progress bars become JSON events.
@@ -591,6 +678,7 @@ def _save_page_output(pdf_path, page, text, images):
 
 
 def main():
+    _start_metrics_thread_once()
     for line in sys.stdin:
         line = line.strip()
         if not line:
@@ -602,30 +690,35 @@ def main():
             continue
 
         c = cmd.get("cmd")
+        if c == "quit":
+            return
+
+        _metrics_active.set()
         try:
-            if c == "quit":
-                return
-            elif c == "render":
-                send(render(
+            if c == "render":
+                result = render(
                     cmd["path"],
                     int(cmd.get("page", 0)),
                     int(cmd.get("dpi", 120)),
-                ))
+                )
             elif c == "ocr":
-                send(ocr(
+                result = ocr(
                     cmd["path"],
                     int(cmd.get("page", 0)),
                     engine=cmd.get("engine", "auto"),
                     use_llm=bool(cmd.get("use_llm", False)),
-                ))
+                )
             else:
-                send({"type": "error", "message": f"unknown command: {c}"})
+                result = {"type": "error", "message": f"unknown command: {c}"}
         except Exception as e:
-            send({
+            result = {
                 "type": "error",
                 "message": str(e),
                 "traceback": traceback.format_exc(),
-            })
+            }
+        finally:
+            _metrics_active.clear()
+        send(result)
 
 
 if __name__ == "__main__":

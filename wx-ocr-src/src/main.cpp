@@ -401,7 +401,10 @@ void MainFrame::SetBusy(bool busy) {
 }
 
 void MainFrame::OnMetricsTick(wxTimerEvent&) {
-    MetricsSample s = collector_.collect();
+    MetricsSample s;
+    if (!(worker_.mode() == Worker::Mode::Remote && worker_.getRemoteMetrics(s))) {
+        s = collector_.collect();
+    }
     cpuBar_->Set(s.cpuPct / 100.0, wxString::Format("%.0f%%", s.cpuPct));
     ramBar_->Set(s.ramPct / 100.0, wxString::Format("%.1fG", s.ramUsedGB));
     if (s.hasGPU) {

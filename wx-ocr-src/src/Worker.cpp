@@ -166,8 +166,36 @@ nlohmann::json Worker::request(const nlohmann::json& req, ProgressCallback onPro
             if (onProgress) onProgress(resp);
             continue;
         }
+        if (t == "metrics") {
+            storeRemoteMetrics(resp);
+            continue;
+        }
         return resp;
     }
+}
+
+void Worker::storeRemoteMetrics(const nlohmann::json& m) {
+    MetricsSample s;
+    s.cpuPct    = m.value("cpu_pct", 0.0);
+    s.ramPct    = m.value("ram_pct", 0.0);
+    s.ramUsedGB = m.value("ram_used_gb", 0.0);
+    s.hasGPU    = m.value("has_gpu", false);
+    if (s.hasGPU) {
+        s.gpuPct     = m.value("gpu_pct", 0.0);
+        s.vramPct    = m.value("vram_pct", 0.0);
+        s.vramUsedMB = m.value("vram_used_mb", 0.0);
+        s.tempC      = m.value("temp_c", 0.0);
+    }
+    std::lock_guard<std::mutex> lk(metricsMu_);
+    lastRemoteMetrics_ = s;
+    haveRemoteMetrics_ = true;
+}
+
+bool Worker::getRemoteMetrics(MetricsSample& out) {
+    std::lock_guard<std::mutex> lk(metricsMu_);
+    if (!haveRemoteMetrics_) return false;
+    out = lastRemoteMetrics_;
+    return true;
 }
 
 void Worker::setMode(Mode m) {
@@ -175,6 +203,10 @@ void Worker::setMode(Mode m) {
     // Force the current worker (if any) to exit; the next request() relaunches
     // against the new transport.
     shutdown();
+    {
+        std::lock_guard<std::mutex> lk(metricsMu_);
+        haveRemoteMetrics_ = false;
+    }
     mode_ = m;
 }
 
