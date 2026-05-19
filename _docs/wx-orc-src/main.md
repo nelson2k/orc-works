@@ -1,105 +1,128 @@
-# main.cpp
+# main.cpp — frame, toolbar, extract loops
 
-Entry point, `App`, and `MainFrame`.
+## App + frame
 
-## Window structure
+[`class App : public wxApp`](../../wx-ocr-src/src/main.cpp#L803-L815)
+enables MSW dark mode (`MSWEnableDarkMode(DarkMode_Always)`), constructs
+`MainFrame`, and shows.
 
-A single `MainFrame` (`wxFrame`) sized to 1200×800 logical pixels.
-Top-to-bottom layout:
+[`MainFrame`](../../wx-ocr-src/src/main.cpp#L98-L160) owns a `Worker`,
+a `MetricsCollector`, the toolbar widgets, the metrics bars, the
+preview, the text area, and a 1Hz `wxTimer`.
 
-1. **File-name banner** (`fileLabel_`, `wxStaticText`) — centered, bold,
-   +2 pt over default; populated from `OnOpen` with the basename of the
-   loaded PDF. Empty (zero-height) until something is opened.
-2. **Top toolbar** (`topPanel`, horizontal `wxBoxSizer`):
-   `Open PDF`, engine `wxChoice`, `Extract Page`, `Extract PDF`, **`Stop`**
-   (red), stretch spacer, `Prev`, page label, `Next`. All custom buttons
-   are [FlatButton](flatbutton.md) instances.
-3. **Outer `wxSplitterWindow`** — left pane is a 5-column metrics panel
-   ([VBar](vbar.md) × 5: CPU, RAM, GPU, VRAM, TEMP). Right pane is the
-   inner splitter. `SetSashGravity(0.0)` keeps the metrics column fixed
-   width.
-4. **Inner `wxSplitterWindow`** — left is the [ZoomPanel](zoompanel.md),
-   right is a multiline `wxTextCtrl` (no wrap, dark) for OCR output.
-   Initial sash 700 DIP, gravity 0.7.
-5. **Status label** (`wxStaticText`) at the bottom.
+## Title bar
 
-## Theme
+[main.cpp:335-342](../../wx-ocr-src/src/main.cpp#L335-L342) tells DWM
+to paint the title bar / window border black via `DwmSetWindowAttribute`
+with the (un-headered) `DWMWA_CAPTION_COLOR` (35) and `DWMWA_BORDER_COLOR`
+(34). The title itself is set when a PDF is opened
+([main.cpp:435](../../wx-ocr-src/src/main.cpp#L435)) using a hard-coded
+em-dash UTF-8 byte sequence so the display name comes through cleanly:
+`"OCR Works \xE2\x80\x94 " + filename`.
+
+## Toolbar
+
+Built into a single `wxBoxSizer` inside `topPanel`
+([main.cpp:202-239](../../wx-ocr-src/src/main.cpp#L202-L239)):
 
 ```
-kBg = (45, 45, 48)
-kFg = (220, 220, 220)
+[Open PDF] [Engine ▾] [Backend ▾] [Extract Page] [Extract PDF] [Stop]                 [Prev] Page X of Y [Next]
 ```
 
-Plus `MSWEnableDarkMode(DarkMode_Always)` and `DwmSetWindowAttribute`
-to paint the title bar and border black on Windows 11. The window title
-is updated to `OCR Works — <filename>` when a PDF is opened.
+Buttons are `FlatButton`s; dropdowns are `wxChoice`. `Stop` is colored
+red via `SetColors`. Prev/Next/ExtractPage/ExtractPDF/Stop start
+disabled and become enabled when there's a loaded PDF and no work in
+flight — see [`SetBusy`](../../wx-ocr-src/src/main.cpp#L373-L401).
 
-## Icon
+## Layout
 
-Right after construction:
+A two-level splitter:
 
-- The Win32 resource icon (`SetIcon(wxICON(orcgui))`) seeds the icon
-  early; backed by [src/icon.ico](../../wx-ocr-src/src/icon.ico).
-- Then `wxBitmapBundle::FromSVGFile("icons/OCR_toolbar_icon.svg")` is
-  rasterized at 16/24/32/48/64/128/256 px, turned into a `wxIconBundle`,
-  and passed to `SetIcons(...)`. Provides crisp DPI scaling at runtime;
-  see [resources.md](resources.md).
+- Outer: metrics column (~180 px) vs everything else.
+- Inner: preview (`ZoomPanel`) vs text area (`wxTextCtrl`, monospace
+  feel via `wxTE_DONTWRAP`).
 
-## State
+Bottom of the root sizer: a `wxStaticText` status label.
 
-`MainFrame` owns:
+## Open
 
-- `Worker worker_` — Python child process (see [worker.md](worker.md)).
-- `MetricsCollector collector_` — system metrics, polled every 1 s
-  by `wxTimer metricsTimer_`.
-- `wxString curPath_`, `int curPage_`, `int curTotal_` — current PDF.
-- `std::atomic<bool> busy_` — guards re-entrancy during worker requests.
-- `std::atomic<bool> stopRequested_` — set by Stop, checked in catch
-  blocks and the Extract PDF loop.
-- `bool ctrlDown_`, `bool spaceDown_` — modifier mirror state forwarded
-  to `ZoomPanel` via `wxEVT_CHAR_HOOK` / `wxEVT_KEY_UP`.
+[`OnOpen`](../../wx-ocr-src/src/main.cpp#L421-L438) opens a PDF dialog,
+resets state (clears the remote-upload cache, clears the text area,
+sets the title), and triggers `RenderPage(0)`. `fitOnNextImage_` is
+set so the first render auto-fits-to-width.
 
-## Event handlers
+## Render
 
-- `OnOpen` — `wxFileDialog` for a PDF, updates `fileLabel_` and the
-  window title, then `RenderPage(0)`.
-- `OnPrev` / `OnNext` — bounded page step (also wired to Left/Right
-  arrow keys via the `CHAR_HOOK`, see [controls.md](controls.md)).
-- `RenderPage(page)` — sends `{"cmd":"render", path, page, dpi:120}` on
-  a detached `std::thread`, base64-decodes the PNG, hands it to
-  `ZoomPanel::SetImage` via `CallAfter`.
-- `OnExtractPage` — single-page OCR; clears `stopRequested_`, streams
-  progress events through `MakeOCRProgress`, dumps result text into the
-  text area, status shows the `saved_to` path.
-- `OnExtractPDF` — loops every page on one detached thread, checks
-  `stopRequested_` at the top of each iteration, accumulates per-page
-  text in a `std::ostringstream` (`# Page N\n\n<text>` separator),
-  refreshes the text area after each page.
-- `OnStop` — sets `stopRequested_` and calls `worker_.cancel()`, which
-  kills the Python process; the in-flight `request()` thread throws on
-  EOF and the catch block shows `stopped` instead of an error dialog.
-- `OnMetricsTick` — polls `MetricsCollector::collect()` and writes each
-  result into its `VBar`.
-- `OnClose` — stops the timer and calls `worker_.shutdown()`.
+[`RenderPage`](../../wx-ocr-src/src/main.cpp#L448-L502) goes async on a
+detached thread:
 
-## Threading
+1. Resolves `PathForWorker()` (may scp in Remote mode).
+2. Sends `{cmd:"render", path, page, dpi:120}` to the worker.
+3. Decodes the base64 PNG into `wxImage`, posts back to the GUI via
+   `CallAfter` — pumps the image into the `ZoomPanel`, updates
+   `curPage_`/`curTotal_`, clears the text area, drops `SetBusy(false)`.
 
-All worker requests run on detached `std::thread`s. UI mutations always
-go through `CallAfter([this, ...] { ... })`, which posts a lambda to the
-wx main loop. Captured wx objects (`wxImage`, `wxString`) are safe to
-copy across threads because they're ref-counted internally.
+## Extract Page
 
-## Progress streaming
+[`OnExtractPage`](../../wx-ocr-src/src/main.cpp#L623-L687):
 
-`MakeOCRProgress(int page)` returns a `std::function<void(const json&)>`
-that the worker thread invokes for each `type:"progress"` message:
+- `SetBusy(true)`, clear text, status = `"starting (<engine>)..."`.
+- On a detached thread, send `{cmd:"ocr", path, page, engine}` with a
+  progress callback from `MakeOCRProgress`.
+- On success: text area = result, status = `"[engine] saved → <path>"`
+  or `"[engine] done"`.
+- On error: dialog + clear status. On Stop: status = `"stopped"`.
 
-- `kind:"image"` — base64 PNG of the current page, pushed to the preview
-- `kind:"stage"` — high-level pipeline stage (remembered for the next
-  tqdm event)
-- `kind:"tqdm"` — per-step progress, formatted as
-  `● page N — <stage> — <desc> n/total`
+## Extract PDF
 
-The current stage name lives in a `std::shared_ptr<std::string>`
-captured by the lambda so each tqdm event can prefix itself with
-whatever stage was last announced.
+[`OnExtractPDF`](../../wx-ocr-src/src/main.cpp#L689-L801) loops over
+every page sequentially:
+
+1. Check `stopRequested_` before each iteration.
+2. Update `curPage_` / page label.
+3. **Re-render** the current page (so the preview shows what's being
+   OCR'd) — wrapped in try/catch so a render hiccup doesn't kill the
+   loop ([main.cpp:723-739](../../wx-ocr-src/src/main.cpp#L723-L739)).
+4. Send the `ocr` command, propagate stage/tqdm/image progress.
+5. On success, **show only the current page's text** in the textbox
+   (the most recent run replaces it — see the `setValue` at
+   [main.cpp:765-770](../../wx-ocr-src/src/main.cpp#L765-L770)).
+6. After all pages, status = `"saved → <last_savedTo>"`.
+
+If `stopRequested_` flips, the loop breaks and status becomes
+`"stopped"`.
+
+## Progress wiring
+
+[`MakeOCRProgress`](../../wx-ocr-src/src/main.cpp#L504-L543) builds a
+lambda that:
+
+- For `kind == "image"`: decodes the base64 PNG and replaces the
+  preview (used by Marker's layout overlay).
+- For `kind == "stage"`: renders `"● page N — <stage>"` into the
+  status label.
+- For `kind == "tqdm"`: appends the desc + `n/total` to the last
+  stage label.
+
+All status updates marshal to the GUI thread via `CallAfter`.
+
+## Metrics tick
+
+[`OnMetricsTick`](../../wx-ocr-src/src/main.cpp#L403-L419) — 1Hz timer
+handler. In Remote mode, tries `worker_.getRemoteMetrics()` first;
+falls back to the local `MetricsCollector`. Pushes values to the 5
+`VBar`s. See [metrics.md](metrics.md).
+
+## Keyboard hooks
+
+`wxEVT_CHAR_HOOK` and `wxEVT_KEY_UP` track Ctrl + Space state and feed
+the `ZoomPanel`; Left/Right pages through the PDF when not focused on
+the text area and not busy
+([main.cpp:311-331](../../wx-ocr-src/src/main.cpp#L311-L331)).
+
+## Close
+
+[`OnClose`](../../wx-ocr-src/src/main.cpp#L352-L356) stops the metrics
+timer and calls `worker_.shutdown()`. In Local mode this sends a
+`{cmd:"quit"}` JSON line and reaps the subprocess; in Remote mode it's
+a no-op (we don't own the FastAPI lifecycle).

@@ -1,36 +1,63 @@
 # wx-ocr-src
 
-Notes on the `wx-ocr-src/` folder.
+Windows-only C++/wxWidgets 3.3 desktop OCR app plus a Python worker that
+does the actual page rendering and text extraction.
 
-C++/wxWidgets desktop OCR application. Mirrors the (now-retired) Go +
-Fyne port and talks to its own Python OCR worker over newline-delimited
-JSON on stdin/stdout.
+## What it does
 
-The app opens a PDF, renders pages for preview, and extracts Markdown
-from a single page or every page. Engine selectable from the toolbar:
+Opens a PDF, lets you flip through pages with a zoomable preview, and runs
+one of five OCR engines against the current page (or every page):
 
-- `auto` — automatic routing
-- `marker` — Marker OCR
-- `marker_llm` — Marker OCR with a local LLM
-- `vlm` — Qwen2.5-VL visual-language extraction
+- **Auto** — digital-text shortcut, else Marker, else falls back to VLM if Marker output looks bad
+- **Marker** — [`marker-pdf`](https://github.com/VikParuchuri/marker) layout + OCR pipeline
+- **Marker + LLM** — Marker with an OpenAI-compatible LLM cleanup pass
+- **VLM (Qwen2.5-VL)** — vision-language model transcribes the page image to Markdown
+- **MinerU** — `mineru[pipeline]` (layout + OCR + formula + table)
 
-Windows-only (`__WXMSW__` paths, `dwmapi`, `nvidia-smi`, raw Win32 pipes
-for the worker process).
+See [engines.md](engines.md).
 
-Per-folder docs:
+## Two backend modes
 
-- [layout.md](layout.md) — folder tree, runtime path resolution
-- [build.md](build.md) — CMake target, deps
-- [main.md](main.md) — `MainFrame`, layout, threading, extract flow
-- [worker.md](worker.md) — Python child process spawn / cancel
-- [metrics.md](metrics.md) — CPU / RAM / GPU sampling
-- [vbar.md](vbar.md) — vertical metric bar control
-- [zoompanel.md](zoompanel.md) — scrollable, zoomable preview
-- [flatbutton.md](flatbutton.md) — owner-drawn toolbar button
-- [controls.md](controls.md) — keyboard and mouse cheatsheet
-- [resources.md](resources.md) — SVG icons, RC manifest
+Selectable from a toolbar dropdown:
 
-The folder is self-contained at runtime: `worker.py`, `requirements.txt`,
-and `venv/` (gitignored) all live inside `wx-ocr-src/`. Build with
-`wx-run.ps1` from the repo root — it configures, builds, and launches
-`build/orcgui.exe`.
+- **Local** — orcgui.exe spawns `venv\Scripts\python.exe worker.py` as a
+  child process, talks to it over Win32 anonymous pipes (one JSON object
+  per line on stdin/stdout).
+- **Remote** — orcgui talks HTTP+SSE to a FastAPI worker at
+  `http://192.168.10.200:9000` (a 4070 box running `worker.py --http`
+  under systemd as `ocr-worker.service`). The PDF is scp'd to `/tmp/`
+  once per Open.
+
+See [backends.md](backends.md), [worker-stdio.md](worker-stdio.md),
+[worker-http.md](worker-http.md).
+
+## Build
+
+Requires MinGW g++, CMake, Ninja, and a wxWidgets 3.3 install at
+`../repos-folder/wxWidgets-install/`. From the project root:
+
+```
+.\run.ps1
+```
+
+…configures, builds, and launches `wx-ocr-src/build/orcgui.exe`.
+
+Details: [build.md](build.md).
+
+## Doc layout
+
+| File | Topic |
+| --- | --- |
+| [build.md](build.md) | Build prerequisites, CMake invocation, where the binary lands |
+| [layout.md](layout.md) | Folder/file tour |
+| [backends.md](backends.md) | Local vs Remote, the toggle, scp, metrics flow |
+| [worker-stdio.md](worker-stdio.md) | Local-mode JSON protocol |
+| [worker-http.md](worker-http.md) | FastAPI endpoints, SSE format, systemd |
+| [engines.md](engines.md) | The five engines and the Auto quality gate |
+| [vlm.md](vlm.md) | llama-server vs transformers/AWQ runtime selection |
+| [main.md](main.md) | main.cpp: frame, toolbar, Extract loops, fit-to-width |
+| [worker-cpp.md](worker-cpp.md) | Worker.cpp: dispatch, WinHTTP/SSE, cancel, metrics thread |
+| [metrics.md](metrics.md) | Local Metrics.cpp + remote SSE/poll pattern |
+| [controls.md](controls.md) | Keyboard, mouse, dropdowns, stop button |
+| [resources.md](resources.md) | orcgui.rc, the icon set |
+| [gotchas.md](gotchas.md) | Worth remembering before touching the code |
