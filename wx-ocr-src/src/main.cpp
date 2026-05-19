@@ -129,6 +129,7 @@ private:
     wxChoice* engineChoice_ = nullptr;
     wxStaticText* pageLabel_ = nullptr;
     wxStaticText* statusLabel_ = nullptr;
+    wxStaticText* fileLabel_ = nullptr;
     wxTextCtrl* textArea_ = nullptr;
     ZoomPanel* preview_ = nullptr;
 
@@ -262,12 +263,24 @@ MainFrame::MainFrame()
     auto* middleSizer = new wxBoxSizer(wxHORIZONTAL);
     middleSizer->Add(outerSplitter, 1, wxEXPAND);
 
+    // File name banner above the toolbar
+    fileLabel_ = new wxStaticText(root, wxID_ANY, "", wxDefaultPosition,
+                                  wxDefaultSize, wxALIGN_CENTRE_HORIZONTAL);
+    fileLabel_->SetForegroundColour(kFg);
+    {
+        wxFont f = fileLabel_->GetFont();
+        f.MakeBold();
+        f.SetPointSize(f.GetPointSize() + 2);
+        fileLabel_->SetFont(f);
+    }
+
     // Status bar text
     statusLabel_ = new wxStaticText(root, wxID_ANY, "");
     statusLabel_->SetForegroundColour(kFg);
     pageLabel_->SetForegroundColour(kFg);
 
     auto* rootSizer = new wxBoxSizer(wxVERTICAL);
+    rootSizer->Add(fileLabel_, 0, wxEXPAND | wxTOP | wxBOTTOM, 4);
     rootSizer->Add(topPanel, 0, wxEXPAND);
     rootSizer->Add(middleSizer, 1, wxEXPAND);
     rootSizer->Add(statusLabel_, 0, wxEXPAND | wxALL, 4);
@@ -404,6 +417,10 @@ void MainFrame::OnOpen(wxCommandEvent&) {
     curPage_ = 0;
     curTotal_ = 0;
     textArea_->SetValue("");
+    wxString fileName = wxFileName(curPath_).GetFullName();
+    SetTitle("OCR Works — " + fileName);
+    fileLabel_->SetLabel(fileName);
+    fileLabel_->GetParent()->Layout();
     RenderPage(0);
 }
 
