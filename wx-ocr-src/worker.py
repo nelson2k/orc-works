@@ -458,6 +458,21 @@ def _ensure_vlm():
     _unload_marker()
     send_stage("loading_vlm")
 
+    # autoawq (deprecated, pinned to transformers<=4.51) imports
+    # PytorchGELUTanh from transformers.activations at module load. The class
+    # was removed in transformers 4.51+. Shim it back as nn.GELU(tanh) before
+    # transformers' AWQ kernel triggers `import awq`.
+    import transformers.activations as _act
+    if not hasattr(_act, "PytorchGELUTanh"):
+        import torch.nn as _nn
+        import torch.nn.functional as _F
+
+        class _PytorchGELUTanh(_nn.Module):
+            def forward(self, x):
+                return _F.gelu(x, approximate="tanh")
+
+        _act.PytorchGELUTanh = _PytorchGELUTanh
+
     import torch
     from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
 
