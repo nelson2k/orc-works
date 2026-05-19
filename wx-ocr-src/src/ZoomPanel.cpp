@@ -92,6 +92,7 @@ void ZoomPanel::OnPaint(wxPaintEvent&) {
 }
 
 void ZoomPanel::OnMouseWheel(wxMouseEvent& evt) {
+    ctrlDown_ = wxGetKeyState(WXK_CONTROL) || evt.ControlDown();
     if (ctrlDown_ && image_.IsOk()) {
         double f = evt.GetWheelRotation() > 0 ? kZoomStep : 1.0 / kZoomStep;
         double ns = scale_ * f;
