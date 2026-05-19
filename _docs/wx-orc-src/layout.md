@@ -3,6 +3,10 @@
 ```
 wx-ocr-src/
 ├── CMakeLists.txt
+├── requirements.txt       # Python deps for the worker (copied from go-ocr-src)
+├── worker.py              # Python OCR worker (copied from go-ocr-src)
+├── venv/                  # Python virtualenv (gitignored)
+├── build/                 # CMake build output (gitignored)
 ├── icons/                 # SVG icons copied next to the exe at build time
 ├── image.png
 └── src/
@@ -16,13 +20,20 @@ wx-ocr-src/
     └── orcgui.rc          # Win32 resource: icon + wx manifest
 ```
 
-Runtime assumptions (same as `go-ocr-src/`):
+Runtime assumptions:
 
-- the exe is launched from `wx-ocr-src/build/.../` (or similar)
-- it resolves Python as `..\venv\Scripts\python.exe`
-- it resolves the worker as `..\worker.py`
-- output Markdown is written to `<repo-root>/output/<pdf-stem>/`
+- the exe lives at `wx-ocr-src/build/orcgui.exe`
+- `Worker.cpp` resolves Python and worker paths **relative to the exe**,
+  not the current working directory, via `GetModuleFileNameW` — so it can
+  be launched from anywhere:
+  - Python  →  `<exe-dir>\..\venv\Scripts\python.exe`
+  - Worker  →  `<exe-dir>\..\worker.py`
+- output Markdown is written to `<repo-root>/output/<pdf-stem>/` (computed
+  by `worker.py` as `os.path.dirname(__file__) + "/../output"`)
 - icons live in an `icons/` folder next to the exe; a post-build CMake step
   copies `wx-ocr-src/icons` there
 
-Both paths above are hardcoded in [worker.md](worker.md).
+The folder is self-contained at runtime — the C++ code, the Python worker,
+its venv, and the SVG icons are all inside `wx-ocr-src/`. The only thing
+still outside is the wxWidgets build, which lives in `repos-folder/` and
+is consumed at compile time (see [build.md](build.md)).

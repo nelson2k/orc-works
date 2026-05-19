@@ -8,3 +8,4 @@ __pycache__/
 node_modules/
 go-ocr-src/venv/
 wx-ocr-src/build/
+wx-ocr-src/venv/

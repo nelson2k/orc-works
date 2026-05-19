@@ -24,14 +24,16 @@ Lazy: the child is launched on the first `request`. Steps:
    on the parent-side ends with `SetHandleInformation`.
 2. Open `NUL` for the child's stderr so worker chatter doesn't leak.
 3. Build a `STARTUPINFOW` wired to the pipes, then `CreateProcessW` with
-   `CREATE_NO_WINDOW`. Command line is hardcoded:
+   `CREATE_NO_WINDOW`. The command line is built from `projectRoot()`,
+   which calls `GetModuleFileNameW(nullptr, ...)` to get the exe path
+   and returns `<exe-dir>\..\`:
 
    ```
-   "..\venv\Scripts\python.exe" "..\worker.py"
+   "<root>venv\Scripts\python.exe" "<root>worker.py"
    ```
 
-   That means the exe must run from a directory where `..\venv` and
-   `..\worker.py` resolve — see [layout.md](layout.md).
+   Since paths are anchored to the exe location, the working directory
+   at launch time does not matter — see [layout.md](layout.md).
 4. Allocate a 64 KiB `readBuf_` for line buffering.
 
 ## I/O

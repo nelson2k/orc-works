@@ -13,6 +13,18 @@ std::wstring widen(const std::string& s) {
     MultiByteToWideChar(CP_UTF8, 0, s.data(), (int)s.size(), w.data(), n);
     return w;
 }
+
+// Returns "<exe-dir>\..\" — i.e. the wx-ocr-src/ root when the exe lives
+// at wx-ocr-src/build/orcgui.exe.
+std::wstring projectRoot() {
+    wchar_t buf[MAX_PATH] = {0};
+    DWORD n = GetModuleFileNameW(nullptr, buf, MAX_PATH);
+    if (n == 0 || n == MAX_PATH) return L"..\\";
+    std::wstring path(buf, n);
+    auto slash = path.find_last_of(L"\\/");
+    std::wstring exeDir = (slash == std::wstring::npos) ? L"." : path.substr(0, slash);
+    return exeDir + L"\\..\\";
+}
 }
 
 bool Worker::ensureStarted() {
@@ -44,7 +56,9 @@ bool Worker::ensureStarted() {
 
     PROCESS_INFORMATION pi{};
 
-    std::wstring cmd = L"\"..\\venv\\Scripts\\python.exe\" \"..\\worker.py\"";
+    std::wstring root = projectRoot();
+    std::wstring cmd = L"\"" + root + L"venv\\Scripts\\python.exe\" \""
+                       + root + L"worker.py\"";
     std::vector<wchar_t> cmdBuf(cmd.begin(), cmd.end());
     cmdBuf.push_back(L'\0');
 

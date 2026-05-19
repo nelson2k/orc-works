@@ -16,3 +16,8 @@ single page or every page. Engines selectable from the toolbar:
 
 Windows-only (`__WXMSW__` paths, `dwmapi`, `nvidia-smi`, raw Win32 pipes for
 the Python worker). See [layout.md](layout.md) for runtime assumptions.
+
+The folder is self-contained: `worker.py`, `requirements.txt`, and a
+ready-to-run `venv/` (gitignored) all live inside `wx-ocr-src/`. Build
+with `wx-run.ps1` from the repo root — it configures, builds, and
+launches `build/orcgui.exe` directly.
