@@ -193,12 +193,38 @@ void Worker::setMode(Mode m) {
     // Tear down whatever we currently own so the next request goes through
     // the new transport.
     shutdown();
-    if (mode_ == Mode::Remote) cancelRemote();
+    if (mode_ == Mode::Remote) {
+        cancelRemote();
+        stopRemoteMetricsPolling();
+    }
     {
         std::lock_guard<std::mutex> lk(metricsMu_);
         haveRemoteMetrics_ = false;
     }
     mode_ = m;
+    if (mode_ == Mode::Remote) {
+        startRemoteMetricsPolling();
+    }
+}
+
+void Worker::startRemoteMetricsPolling() {
+    if (metricsPollThread_.joinable()) return;
+    metricsPollStop_ = false;
+    metricsPollThread_ = std::thread([this] {
+        while (!metricsPollStop_.load()) {
+            try { pollRemoteMetricsHttp(); } catch (...) {}
+            std::unique_lock<std::mutex> lk(metricsPollWaitMu_);
+            metricsPollWaitCv_.wait_for(lk, std::chrono::seconds(2),
+                [this] { return metricsPollStop_.load(); });
+        }
+    });
+}
+
+void Worker::stopRemoteMetricsPolling() {
+    if (!metricsPollThread_.joinable()) return;
+    metricsPollStop_ = true;
+    metricsPollWaitCv_.notify_all();
+    metricsPollThread_.join();
 }
 
 void Worker::storeRemoteMetrics(const nlohmann::json& m) {
@@ -560,7 +586,10 @@ void Worker::pollRemoteMetricsHttp() {
     }
 }
 
-Worker::~Worker() { shutdown(); }
+Worker::~Worker() {
+    stopRemoteMetricsPolling();
+    shutdown();
+}
 
 #else
 #error "Worker is currently Windows-only"

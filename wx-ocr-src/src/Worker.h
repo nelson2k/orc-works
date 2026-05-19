@@ -1,8 +1,11 @@
 #pragma once
 
+#include <atomic>
+#include <condition_variable>
 #include <functional>
 #include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 #ifdef _WIN32
@@ -40,12 +43,13 @@ public:
     // since the last shutdown / mode change.
     bool getRemoteMetrics(MetricsSample& out);
 
-    // Best-effort metrics poll for the idle case in Remote mode. Hits
-    // GET /v1/metrics and stashes the result. Cheap (HTTP round trip);
-    // safe to call from a background timer. No-op in Local mode.
-    void pollRemoteMetricsHttp();
-
 private:
+    // One blocking GET /v1/metrics → cache. Called from the polling thread,
+    // never from the UI thread.
+    void pollRemoteMetricsHttp();
+    void startRemoteMetricsPolling();
+    void stopRemoteMetricsPolling();
+
     // --- shared ---
     void storeRemoteMetrics(const nlohmann::json& m);
 
@@ -68,6 +72,14 @@ private:
     std::mutex metricsMu_;
     MetricsSample lastRemoteMetrics_;
     bool haveRemoteMetrics_ = false;
+
+    // Background thread that polls /v1/metrics every couple of seconds while
+    // mode_ == Remote, so the bars stay live between requests without ever
+    // blocking the UI thread.
+    std::thread metricsPollThread_;
+    std::atomic<bool> metricsPollStop_{false};
+    std::mutex metricsPollWaitMu_;
+    std::condition_variable metricsPollWaitCv_;
 
 #ifdef _WIN32
     // Local-mode subprocess
