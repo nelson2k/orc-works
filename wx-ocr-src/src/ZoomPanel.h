@@ -10,6 +10,8 @@ public:
     void SetImage(const wxImage& img);
     bool HasImage() const { return image_.IsOk(); }
 
+    void FitWidth();
+
     void SetCtrlDown(bool v) { ctrlDown_ = v; }
     void SetSpaceDown(bool v);
 

@@ -1,6 +1,7 @@
 #include "ZoomPanel.h"
 
 #include <wx/dcbuffer.h>
+#include <wx/settings.h>
 
 #include <algorithm>
 
@@ -47,6 +48,28 @@ void ZoomPanel::SetImage(const wxImage& img) {
     if (image_.IsOk() && scale_ == 1.0) {
         scale_ = 1.0;
     }
+    RebuildBitmap();
+    UpdateVirtualSize();
+    Refresh(false);
+}
+
+void ZoomPanel::FitWidth() {
+    if (!image_.IsOk()) return;
+    wxSize client = GetClientSize();
+    // Reserve space for the vertical scrollbar so the image actually fits.
+    int sbW = wxSystemSettings::GetMetric(wxSYS_VSCROLL_X);
+    if (sbW <= 0) sbW = FromDIP(16);
+    int availW = client.x - sbW;
+    if (availW <= 0 || image_.GetWidth() <= 0) return;
+
+    double s = double(availW) / double(image_.GetWidth());
+    int nw = int(image_.GetWidth() * s);
+    int nh = int(image_.GetHeight() * s);
+    if (nw < kZoomMinSide || nh < kZoomMinSide) return;
+    if (nw > kZoomMaxSide || nh > kZoomMaxSide) return;
+
+    scale_ = s;
+    Scroll(0, 0);
     RebuildBitmap();
     UpdateVirtualSize();
     Refresh(false);

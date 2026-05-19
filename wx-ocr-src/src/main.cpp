@@ -130,7 +130,6 @@ private:
     wxChoice* engineChoice_ = nullptr;
     wxStaticText* pageLabel_ = nullptr;
     wxStaticText* statusLabel_ = nullptr;
-    wxStaticText* fileLabel_ = nullptr;
     wxTextCtrl* textArea_ = nullptr;
     ZoomPanel* preview_ = nullptr;
 
@@ -147,6 +146,7 @@ private:
     int curTotal_ = 0;
     bool ctrlDown_ = false;
     bool spaceDown_ = false;
+    bool fitOnNextImage_ = false;
     std::atomic<bool> busy_{false};
     std::atomic<bool> stopRequested_{false};
 };
@@ -264,24 +264,12 @@ MainFrame::MainFrame()
     auto* middleSizer = new wxBoxSizer(wxHORIZONTAL);
     middleSizer->Add(outerSplitter, 1, wxEXPAND);
 
-    // File name banner above the toolbar
-    fileLabel_ = new wxStaticText(root, wxID_ANY, "", wxDefaultPosition,
-                                  wxDefaultSize, wxALIGN_CENTRE_HORIZONTAL);
-    fileLabel_->SetForegroundColour(kFg);
-    {
-        wxFont f = fileLabel_->GetFont();
-        f.MakeBold();
-        f.SetPointSize(f.GetPointSize() + 2);
-        fileLabel_->SetFont(f);
-    }
-
     // Status bar text
     statusLabel_ = new wxStaticText(root, wxID_ANY, "");
     statusLabel_->SetForegroundColour(kFg);
     pageLabel_->SetForegroundColour(kFg);
 
     auto* rootSizer = new wxBoxSizer(wxVERTICAL);
-    rootSizer->Add(fileLabel_, 0, wxEXPAND | wxTOP | wxBOTTOM, 4);
     rootSizer->Add(topPanel, 0, wxEXPAND);
     rootSizer->Add(middleSizer, 1, wxEXPAND);
     rootSizer->Add(statusLabel_, 0, wxEXPAND | wxALL, 4);
@@ -418,10 +406,8 @@ void MainFrame::OnOpen(wxCommandEvent&) {
     curPage_ = 0;
     curTotal_ = 0;
     textArea_->SetValue("");
-    wxString fileName = wxFileName(curPath_).GetFullName();
-    SetTitle("OCR Works — " + fileName);
-    fileLabel_->SetLabel(fileName);
-    fileLabel_->GetParent()->Layout();
+    SetTitle(wxString::FromUTF8("OCR Works \xE2\x80\x94 ") + wxFileName(curPath_).GetFullName());
+    fitOnNextImage_ = true;
     RenderPage(0);
 }
 
@@ -456,7 +442,13 @@ void MainFrame::RenderPage(int page) {
             int pages = resp.value("pages", 0);
 
             CallAfter([this, img, pages, page]() {
-                if (img.IsOk()) preview_->SetImage(img);
+                if (img.IsOk()) {
+                    preview_->SetImage(img);
+                    if (fitOnNextImage_) {
+                        preview_->FitWidth();
+                        fitOnNextImage_ = false;
+                    }
+                }
                 curPage_ = page;
                 if (pages > 0) curTotal_ = pages;
                 UpdateLabel();
